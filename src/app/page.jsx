@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Save, BarChart2, FilePlus2, Download, Upload, Trash2, Eye, Edit3, Check, FileUp, FileText } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Save, BarChart2, FilePlus2, Download, Upload, Trash2, Eye, Edit3, Check, FileUp, FileText, Copy } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from "recharts";
 
 /********************
@@ -22,7 +23,12 @@ const todayISO = () => new Date().toISOString().slice(0,10);
 const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
 
 const readFileAsDataURL = (file) =>
-  new Promise((resolve, reject) => {
+  new Promise((resolve, reject) => { 
+    const MAX_MB = 20;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      reject(new Error(`El archivo supera ${MAX_MB}MB`));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => resolve({ name: file.name, size: file.size, type: file.type, dataUrl: String(reader.result), id: uid(), addedAt: new Date().toISOString() });
     reader.onerror = reject;
@@ -30,7 +36,7 @@ const readFileAsDataURL = (file) =>
   });
 
 /********************
- *  PERSISTENCIA (localStorage)
+ *  PERSISTENCIA
  *******************/
 const STORAGE_KEY = "meg-industrial-sw";
 function useStore() {
@@ -50,7 +56,7 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [usarNetoSinIVA, setUsarNetoSinIVA] = useState(true);
 
-  // TOTALES GLOBALES
+  // KPIs globales desde cotizaciones (factura y OT)
   const totales = useMemo(()=>{
     let ingresos = 0, costos = 0;
     for (const c of data.cotizaciones) {
@@ -63,7 +69,7 @@ export default function App() {
     return { ingresos, costos, utilidad: Math.max(ingresos - costos, 0) };
   }, [data.cotizaciones, usarNetoSinIVA]);
 
-  // SERIES POR MES
+  // Series mensualizadas
   const monthly = useMemo(()=>{
     const map = {};
     for (const c of data.cotizaciones) {
@@ -82,7 +88,7 @@ export default function App() {
     return Object.values(map).sort((a,b)=> a.mes.localeCompare(b.mes));
   }, [data.cotizaciones, usarNetoSinIVA]);
 
-  // UTILIDAD POR CLIENTE
+  // Utilidad por cliente
   const utilPorCliente = useMemo(()=>{
     const byCli = {};
     for (const c of data.cotizaciones) {
@@ -112,6 +118,16 @@ export default function App() {
       try { const parsed = JSON.parse(String(reader.result)); setData(parsed); } catch(e){ alert("Archivo inválido"); }
     };
     reader.readAsText(file);
+  };
+
+  // Duplicar cotización
+  const duplicarCotizacion = (c) => {
+    const copia = deepClone(c);
+    copia.id = uid();
+    copia.numero = c.numero + "-COPY";
+    copia.fecha = todayISO();
+    setData(d => ({ ...d, cotizaciones: [copia, ...d.cotizaciones] }));
+    alert("Cotización duplicada");
   };
 
   return (
@@ -144,8 +160,8 @@ export default function App() {
               <label htmlFor="neto" className="text-neutral-700">Calcular Ingresos sin IVA (recomendado para utilidad)</label>
             </div>
             <div className="grid md:grid-cols-3 gap-4">
-              <KPICard title="Ingresos" value={fmtMoney(totales.ingresos)} subtitle={`${data.cotizaciones.filter(c=>Number(c?.factura?.total||0)>0).length} factura(s) ${usarNetoSinIVA?"· neto":"· bruto"}`} />
-              <KPICard title="Costos (OT)" value={fmtMoney(totales.costos)} subtitle={`${data.cotizaciones.filter(c=>(c?.ot?.items||[]).length>0).length} cot(s) con OT`} />
+              <KPICard title="Ingresos" value={fmtMoney(totales.ingresos)} subtitle={`${totFactCount(data)} factura(s) ${usarNetoSinIVA?"· neto":"· bruto"}`} />
+              <KPICard title="Costos (OT)" value={fmtMoney(totales.costos)} subtitle={`${totOTCount(data)} cot(s) con OT`} />
               <KPICard title="Utilidad" value={fmtMoney(totales.utilidad)} highlight />
             </div>
 
@@ -187,7 +203,7 @@ export default function App() {
             </div>
           </TabsContent>
 
-          {/* COTIZACIONES: filtros + listado + detalle/edición */}
+          {/* COTIZACIONES */}
           <TabsContent value="cotizaciones" className="mt-6 space-y-4">
             <Card className="bg-white border border-neutral-200">
               <CardContent className="p-4 space-y-3">
@@ -203,10 +219,15 @@ export default function App() {
                 ...d,
                 cotizaciones: d.cotizaciones.map(x=> x.id===updated.id? updated : x)
               }))}
+              onDuplicar={duplicarCotizacion}
+              onDeleteCotizacion={(id)=> setData(d=>({
+                ...d,
+                cotizaciones: d.cotizaciones.filter(x=> x.id !== id)
+              }))}
             />
           </TabsContent>
 
-          {/* NUEVA COTIZACIÓN (con OC, OT, Factura y PDFs) */}
+          {/* NUEVA COTIZACIÓN */}
           <TabsContent value="nueva" className="mt-6">
             <Card className="bg-white border border-neutral-200">
               <CardContent className="p-6 space-y-6">
@@ -220,6 +241,9 @@ export default function App() {
     </div>
   );
 }
+
+const totFactCount = (data) => data.cotizaciones.filter(c=>Number(c?.factura?.total||0)>0).length;
+const totOTCount   = (data) => data.cotizaciones.filter(c=>(c?.ot?.items||[]).length>0).length;
 
 /********************
  *  SUBCOMPONENTES COMUNES
@@ -254,17 +278,32 @@ function SumBox({ title, value, highlight }){
   );
 }
 
+function badgeVariant(estado) {
+  switch(estado){
+    case "Aprobada": return "default";
+    case "Enviada": return "secondary";
+    case "Rechazada": return "destructive";
+    default: return "outline";
+  }
+}
+
 /********************
- *  ADMIN DE PDFs (agregar / reemplazar / eliminar / ver)
+ *  ADMIN DE PDFs (con visor embebido)
  *******************/
 function PDFManager({ label, files = [], onChange }){
   const addInputRef = React.useRef(null);
-  const replaceRefs = React.useRef({}); // {id: ref}
+  const replaceRefs = React.useRef({});
+  const [preview, setPreview] = useState(null);
 
   const addFiles = async (fileList) => {
-    const arr = Array.from(fileList || []);
-    const loaded = await Promise.all(arr.map(readFileAsDataURL));
-    onChange([...(files||[]), ...loaded]);
+    try{
+      const arr = Array.from(fileList || []);
+      if (arr.length === 0) return;
+      const loaded = await Promise.all(arr.map(readFileAsDataURL));
+      onChange([...(files||[]), ...loaded]);
+    }catch(e){
+      alert(e.message || "No se pudo cargar el archivo");
+    }
   };
 
   const onClickAdd = () => addInputRef.current?.click();
@@ -272,11 +311,20 @@ function PDFManager({ label, files = [], onChange }){
 
   const handleReplace = async (id, file) => {
     if (!file) return;
-    const loaded = await readFileAsDataURL(file);
-    onChange((files||[]).map(f=> f.id===id ? loaded : f));
+    try{
+      const loaded = await readFileAsDataURL(file);
+      onChange((files||[]).map(f=> f.id===id ? loaded : f));
+    }catch(e){
+      alert(e.message || "No se pudo reemplazar el archivo");
+    }
   };
 
   const removeFile = (id) => onChange((files||[]).filter(f=>f.id!==id));
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  };
 
   return (
     <div className="space-y-2">
@@ -287,6 +335,14 @@ function PDFManager({ label, files = [], onChange }){
           <input ref={addInputRef} type="file" accept="application/pdf" multiple className="hidden"
                  onChange={e=>{ if (e.target.files) addFiles(e.target.files); e.target.value=""; }} />
         </div>
+      </div>
+
+      <div
+        className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-3 text-center text-neutral-500"
+        onDragOver={(e)=>e.preventDefault()}
+        onDrop={onDrop}
+      >
+        Arrastra y suelta PDF(s) aquí, o usa “Agregar PDF”.
       </div>
 
       <Card className="bg-white border border-neutral-200">
@@ -311,9 +367,7 @@ function PDFManager({ label, files = [], onChange }){
                   <TableCell>{Math.round((f.size||0)/1024)} KB</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <a href={f.dataUrl} target="_blank" rel="noreferrer">
-                        <Button size="sm" variant="secondary">Ver</Button>
-                      </a>
+                      <Button size="sm" variant="secondary" onClick={()=>setPreview({ name:f.name, dataUrl:f.dataUrl })}>Ver</Button>
                       <Button size="sm" variant="secondary" onClick={()=>onReplace(f.id)}>Reemplazar</Button>
                       <input
                         ref={el=>{ if (el) replaceRefs.current[f.id] = el; }}
@@ -329,16 +383,25 @@ function PDFManager({ label, files = [], onChange }){
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={!!preview} onOpenChange={(o)=>{ if(!o) setPreview(null); }}>
+        <DialogContent className="max-w-5xl h-[80vh] overflow-hidden">
+          <DialogHeader><DialogTitle>{preview?.name || "Vista de PDF"}</DialogTitle></DialogHeader>
+          {preview && (
+            <iframe
+              title="pdf"
+              src={preview.dataUrl}
+              className="w-full h-full rounded-lg border"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 /********************
- *  FORMULARIO — COTIZACIÓN COMPLETA
- *  Datos clave + monto + PDFs
- *  OC (código, monto, PDFs)
- *  OT (servicios, PDFs)
- *  Factura (total, PDFs)
+ *  FORMULARIO — COTIZACIÓN (NUEVA)
  *******************/
 function CotizacionForm({ onSave }){
   // Datos clave
@@ -346,6 +409,7 @@ function CotizacionForm({ onSave }){
   const [fecha, setFecha]     = useState(todayISO());
   const [cliente, setCliente] = useState("");
   const [solicitud, setSolicitud] = useState("");
+  const [estado, setEstado] = useState("Borrador");
   const [montoCot, setMontoCot] = useState(0);
   const [cotPDFs, setCotPDFs] = useState([]);
 
@@ -376,7 +440,7 @@ function CotizacionForm({ onSave }){
     if (!cliente) { alert("Ingresa el cliente"); return; }
     const c = {
       id: uid(),
-      numero, fecha, cliente, solicitud,
+      numero, fecha, cliente, solicitud, estado,
       monto: Number(montoCot||0), pdfs: cotPDFs,
       oc: { codigo: ocCodigo, monto: Number(ocMonto||0), pdfs: ocPDFs },
       ot: { fecha: otFecha, items: otItems, pdfs: otPDFs },
@@ -392,6 +456,11 @@ function CotizacionForm({ onSave }){
       <section className="grid md:grid-cols-3 gap-4">
         <Field label="N° Cotización"><Input value={numero} onChange={e=>setNumero(e.target.value)} /></Field>
         <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} /></Field>
+        <Field label="Estado">
+          <select className="w-full bg-white border rounded-md h-10 px-3" value={estado} onChange={e=>setEstado(e.target.value)}>
+            <option>Borrador</option><option>Enviada</option><option>Aprobada</option><option>Rechazada</option>
+          </select>
+        </Field>
         <Field label="Cliente"><Input value={cliente} onChange={e=>setCliente(e.target.value)} /></Field>
         <Field label="Solicitud / Proyecto" className="md:col-span-2"><Input value={solicitud} onChange={e=>setSolicitud(e.target.value)} /></Field>
         <Field label="Monto Cotización (registro)"><Input type="number" value={montoCot} onChange={e=>setMontoCot(Number(e.target.value))} /></Field>
@@ -473,60 +542,79 @@ function CotizacionForm({ onSave }){
 }
 
 /********************
- *  LISTADO + FILTROS + DETALLE/EDICIÓN
+ *  LISTADO + FILTROS + DETALLE/EDICIÓN + PAGINACIÓN
  *******************/
 function FiltrosCotizaciones(){
   const [numero, setNumero] = useState("");
   const [cliente, setCliente] = useState("");
   const [solicitud, setSolicitud] = useState("");
+  const [estado, setEstado] = useState("");
 
   useEffect(()=>{
     sessionStorage.setItem("filtro-numero", numero);
     sessionStorage.setItem("filtro-cliente", cliente);
     sessionStorage.setItem("filtro-solicitud", solicitud);
-  }, [numero, cliente, solicitud]);
+    sessionStorage.setItem("filtro-estado", estado);
+  }, [numero, cliente, solicitud, estado]);
 
   useEffect(()=>{
     setNumero(sessionStorage.getItem("filtro-numero")||"");
     setCliente(sessionStorage.getItem("filtro-cliente")||"");
     setSolicitud(sessionStorage.getItem("filtro-solicitud")||"");
+    setEstado(sessionStorage.getItem("filtro-estado")||"");
   }, []);
 
   if (typeof window !== "undefined") {
-    window.__filtros__ = { numero, cliente, solicitud };
+    window.__filtros__ = { numero, cliente, solicitud, estado };
   }
 
   return (
-    <div className="grid md:grid-cols-3 gap-3">
+    <div className="grid md:grid-cols-4 gap-3">
       <Field label="Código / N°"><Input value={numero} onChange={e=>setNumero(e.target.value)} placeholder="CTZ-..."/></Field>
       <Field label="Empresa / Cliente"><Input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Santa Marta, INOXA..."/></Field>
       <Field label="Solicitud / Proyecto"><Input value={solicitud} onChange={e=>setSolicitud(e.target.value)} placeholder="Longovilo, Contenedor 40&quot;..."/></Field>
+      <Field label="Estado">
+        <select className="w-full bg-white border rounded-md h-10 px-3" value={estado} onChange={e=>setEstado(e.target.value)}>
+          <option value="">Todos</option>
+          <option value="Borrador">Borrador</option>
+          <option value="Enviada">Enviada</option>
+          <option value="Aprobada">Aprobada</option>
+          <option value="Rechazada">Rechazada</option>
+        </select>
+      </Field>
     </div>
   );
 }
 
-function ListadoCotizaciones({ cotizaciones, usarNetoSinIVA, onSaveCotizacion }){
-  const filtros = (typeof window !== "undefined" && window.__filtros__) || { numero:"", cliente:"", solicitud:"" };
+function ListadoCotizaciones({ cotizaciones, usarNetoSinIVA, onSaveCotizacion, onDuplicar, onDeleteCotizacion }){
+  const filtros = (typeof window !== "undefined" && window.__filtros__) || { numero:"", cliente:"", solicitud:"", estado:"" };
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
-  const getOCRef = (c) => (c?.oc?.codigo ?? c?.oc ?? "—");
-
-  const rows = cotizaciones
+  const rowsAll = cotizaciones
     .filter(c =>
       (filtros.numero? c.numero.toLowerCase().includes(filtros.numero.toLowerCase()) : true) &&
       (filtros.cliente? c.cliente.toLowerCase().includes(filtros.cliente.toLowerCase()) : true) &&
-      (filtros.solicitud? (c.solicitud||"").toLowerCase().includes(filtros.solicitud.toLowerCase()) : true)
+      (filtros.solicitud? (c.solicitud||"").toLowerCase().includes(filtros.solicitud.toLowerCase()) : true) &&
+      (filtros.estado? c.estado===filtros.estado : true)
     )
-    .map(c => {
-      const fact = Number(c?.factura?.total || 0);
-      const factCalc = usarNetoSinIVA ? (fact/1.19) : fact;
-      const otTotal = (c?.ot?.items || []).reduce((s,i)=> s + (Number(i.cantidad||0) * Number(i.costo||0)), 0);
-      const utilidad = Math.max(factCalc - otTotal, 0);
-      return { c, factCalc, otTotal, utilidad };
-    });
+    .sort((a,b)=> (b.fecha||"").localeCompare(a.fecha||""));
+
+  const totalPages = Math.max(1, Math.ceil(rowsAll.length / pageSize));
+  const current = rowsAll.slice((page-1)*pageSize, page*pageSize);
+
+  const makeRow = (c) => {
+    const fact = Number(c?.factura?.total || 0);
+    const factCalc = usarNetoSinIVA ? (fact/1.19) : fact;
+    const otTotal = (c?.ot?.items || []).reduce((s,i)=> s + (Number(i.cantidad||0) * Number(i.costo||0)), 0);
+    const utilidad = Math.max(factCalc - otTotal, 0);
+    const ocRef = (c?.oc?.codigo ?? c?.oc ?? "—");
+    return { c, factCalc, otTotal, utilidad, ocRef };
+  };
 
   return (
     <Card className="bg-white border border-neutral-200">
-      <CardContent className="p-4">
+      <CardContent className="p-4 space-y-3">
         <Table className="text-sm">
           <TableHeader>
             <TableRow>
@@ -534,58 +622,87 @@ function ListadoCotizaciones({ cotizaciones, usarNetoSinIVA, onSaveCotizacion })
               <TableHead>Fecha</TableHead>
               <TableHead>Cliente</TableHead>
               <TableHead>Solicitud</TableHead>
+              <TableHead>Estado</TableHead>
               <TableHead>OC</TableHead>
               <TableHead className="text-right">Monto Cot.</TableHead>
               <TableHead className="text-right">Factura {usarNetoSinIVA ? "(neto)" : "(bruto)"}</TableHead>
               <TableHead className="text-right">Total OT</TableHead>
               <TableHead className="text-right">Utilidad</TableHead>
-              <TableHead></TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length===0 && (<TableRow><TableCell colSpan={10} className="text-center text-neutral-500 py-6">Sin resultados</TableCell></TableRow>)}
-            {rows.map(({c, factCalc, otTotal, utilidad}) => (
-              <TableRow key={c.id} className="hover:bg-neutral-50">
-                <TableCell>{c.numero}</TableCell>
-                <TableCell>{c.fecha}</TableCell>
-                <TableCell>{c.cliente}</TableCell>
-                <TableCell>{c.solicitud || "—"}</TableCell>
-                <TableCell>{getOCRef(c)}</TableCell>
-                <TableCell className="text-right">{fmtMoney(Number(c?.monto||0))}</TableCell>
-                <TableCell className="text-right">{fmtMoney(factCalc)}</TableCell>
-                <TableCell className="text-right">{fmtMoney(otTotal)}</TableCell>
-                <TableCell className="text-right font-semibold">{fmtMoney(utilidad)}</TableCell>
-                <TableCell className="text-right">
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button size="sm" variant="secondary" className="gap-1"><Eye size={14}/> Ver / Editar</Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-5xl">
-                      <DialogHeader><DialogTitle>{c.numero} — {c.cliente}</DialogTitle></DialogHeader>
-                      <DetalleCotizacionEditable
-                        initial={c}
-                        usarNetoSinIVA={usarNetoSinIVA}
-                        onSave={onSaveCotizacion}
-                      />
-                    </DialogContent>
-                  </Dialog>
-                </TableCell>
-              </TableRow>
-            ))}
+            {current.length===0 && (<TableRow><TableCell colSpan={11} className="text-center text-neutral-500 py-6">Sin resultados</TableCell></TableRow>)}
+            {current.map(c => {
+              const r = makeRow(c);
+              return (
+                <TableRow key={c.id} className="hover:bg-neutral-50">
+                  <TableCell>{c.numero}</TableCell>
+                  <TableCell>{c.fecha}</TableCell>
+                  <TableCell>{c.cliente}</TableCell>
+                  <TableCell>{c.solicitud || "—"}</TableCell>
+                  <TableCell><Badge variant={badgeVariant(c.estado)}>{c.estado||"Borrador"}</Badge></TableCell>
+                  <TableCell>{r.ocRef}</TableCell>
+                  <TableCell className="text-right">{fmtMoney(Number(c?.monto||0))}</TableCell>
+                  <TableCell className="text-right">{fmtMoney(r.factCalc)}</TableCell>
+                  <TableCell className="text-right">{fmtMoney(r.otTotal)}</TableCell>
+                  <TableCell className="text-right font-semibold">{fmtMoney(r.utilidad)}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-2 justify-end">
+                      <Button size="sm" variant="secondary" className="gap-1" onClick={()=>onDuplicar(c)}><Copy size={14}/> Duplicar</Button>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button size="sm" variant="secondary" className="gap-1"><Eye size={14}/> Ver / Editar</Button>
+                        </DialogTrigger>
+                        {/* Scroll habilitado dentro del modal */}
+                        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+                          <DialogHeader><DialogTitle>{c.numero} — {c.cliente}</DialogTitle></DialogHeader>
+                          <DetalleCotizacionEditable
+                            initial={c}
+                            usarNetoSinIVA={usarNetoSinIVA}
+                            onSave={onSaveCotizacion}
+                            onDelete={()=>onDeleteCotizacion(c.id)}
+                          />
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
+
+        <Paginador page={page} totalPages={totalPages} onPageChange={setPage} totalRows={rowsAll.length} pageSize={pageSize} />
       </CardContent>
     </Card>
   );
 }
 
-function DetalleCotizacionEditable({ initial, usarNetoSinIVA, onSave }){
+function Paginador({ page, totalPages, onPageChange, totalRows, pageSize }){
+  const start = (page-1)*pageSize + 1;
+  const end = Math.min(totalRows, page*pageSize);
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <div className="text-neutral-600">Mostrando {start}-{end} de {totalRows}</div>
+      <div className="flex gap-2">
+        <Button variant="secondary" disabled={page<=1} onClick={()=>onPageChange(page-1)}>Anterior</Button>
+        <div className="px-3 py-2 rounded-md border bg-white">{page} / {totalPages}</div>
+        <Button variant="secondary" disabled={page>=totalPages} onClick={()=>onPageChange(page+1)}>Siguiente</Button>
+      </div>
+    </div>
+  );
+}
+
+/********************
+ *  DETALLE / EDICIÓN COMPLETA
+ *******************/
+function DetalleCotizacionEditable({ initial, usarNetoSinIVA, onSave, onDelete }){
   const [edit, setEdit] = useState(false);
   const [cot, setCot] = useState(deepClone(initial));
 
   useEffect(()=>{ setCot(deepClone(initial)); setEdit(false); }, [initial?.id]);
 
-  // helpers
   const setField = (k, v) => setCot(prev => ({ ...prev, [k]: v }));
   const setFactura = (patch) => setCot(prev => ({ ...prev, factura: { ...(prev.factura||{}), ...patch } }));
   const setOT = (patch) => setCot(prev => ({ ...prev, ot: { ...(prev.ot||{items:[]}), ...patch } }));
@@ -608,7 +725,13 @@ function DetalleCotizacionEditable({ initial, usarNetoSinIVA, onSave }){
     alert("Cambios guardados");
   };
 
-  // aseguramos estructuras
+  const tryDelete = () => {
+    if (confirm(`¿Eliminar la cotización ${initial.numero}? Esta acción no se puede deshacer.`)) {
+      onDelete?.();
+    }
+  };
+
+  // asegurar estructuras
   const oc = cot.oc || { codigo:"", monto:0, pdfs:[] };
   const cotPDFs = cot.pdfs || [];
   const otPDFs = (cot.ot?.pdfs) || [];
@@ -618,28 +741,47 @@ function DetalleCotizacionEditable({ initial, usarNetoSinIVA, onSave }){
     <div className="space-y-6 text-sm">
       {/* Barra de acciones */}
       <div className="flex items-center justify-between">
-        <div className="text-neutral-600">Creada el {initial.fecha}</div>
-        {edit ? (
-          <div className="flex gap-2">
-            <Button onClick={saveAll} className="gap-2"><Check size={16}/> Guardar cambios</Button>
-            <Button variant="secondary" onClick={()=>{ setCot(deepClone(initial)); setEdit(false); }}>Cancelar</Button>
-          </div>
-        ) : (
-          <Button variant="secondary" onClick={()=>setEdit(true)} className="gap-2"><Edit3 size={16}/> Editar</Button>
-        )}
+        <div className="text-neutral-600">ID: {initial.id}</div>
+        <div className="flex gap-2">
+          {edit ? (
+            <>
+              <Button onClick={saveAll} className="gap-2"><Check size={16}/> Guardar cambios</Button>
+              <Button variant="secondary" onClick={()=>{ setCot(deepClone(initial)); setEdit(false); }}>Cancelar</Button>
+            </>
+          ) : (
+            <Button variant="secondary" onClick={()=>setEdit(true)} className="gap-2"><Edit3 size={16}/> Editar</Button>
+          )}
+          <Button variant="destructive" onClick={tryDelete} className="gap-2"><Trash2 size={16}/> Eliminar</Button>
+        </div>
       </div>
 
-      {/* Datos clave + Totales */}
+      {/* Datos clave + Totales (TODO editable: numero y fecha incluidos) */}
       <div className="grid md:grid-cols-3 gap-4">
+        <Field label="N° Cotización">
+          {edit ? <Input value={cot.numero||""} onChange={e=>setField("numero", e.target.value)} /> : <div>{cot.numero}</div>}
+        </Field>
+        <Field label="Fecha">
+          {edit ? <Input type="date" value={cot.fecha||todayISO()} onChange={e=>setField("fecha", e.target.value)} /> : <div>{cot.fecha}</div>}
+        </Field>
+        <Field label="Estado">
+          {edit ? (
+            <select className="w-full bg-white border rounded-md h-10 px-3" value={cot.estado||"Borrador"} onChange={e=>setField("estado", e.target.value)}>
+              <option>Borrador</option><option>Enviada</option><option>Aprobada</option><option>Rechazada</option>
+            </select>
+          ) : <Badge variant={badgeVariant(cot.estado)}>{cot.estado||"Borrador"}</Badge>}
+        </Field>
+
         <Field label="Cliente">
           {edit ? <Input value={cot.cliente||""} onChange={e=>setField("cliente", e.target.value)} /> : <div>{cot.cliente}</div>}
         </Field>
-        <Field label="Solicitud / Proyecto">
+        <Field label="Solicitud / Proyecto" className="md:col-span-2">
           {edit ? <Input value={cot.solicitud||""} onChange={e=>setField("solicitud", e.target.value)} /> : <div>{cot.solicitud || "—"}</div>}
         </Field>
-        <Field label="Monto Cotización (registro)">
+
+        <Field label="Monto Cotización (registro)" className="md:col-span-3">
           {edit ? <Input type="number" value={Number(cot.monto||0)} onChange={e=>setField("monto", Number(e.target.value))} /> : <div>{fmtMoney(Number(cot.monto||0))}</div>}
         </Field>
+
         <div className="grid grid-cols-3 gap-2 md:col-span-3">
           <SumBox title={`Factura ${usarNetoSinIVA?"(neto)":""}`} value={fmtMoney(factCalc)} />
           <SumBox title="Total OT" value={fmtMoney(otTotal)} />
