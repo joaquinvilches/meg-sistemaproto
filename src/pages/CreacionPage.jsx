@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/Toast';
 import { RUTInput } from '@/components/RUTInput';
 import { validateRUT } from '@/utils/rut';
+import { MoneyInput, fmtMoney as formatMoney } from '@/utils/money';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,8 @@ function deleteCondicionesPlantilla(nombre) {
    Store de persistencia (API)
    =========================== */
 function useCreacionStore(userKey) {
-  const API_BASE = import.meta.env.DEV ? 'http://localhost:3001' : '';
+  // Siempre usar localhost:3001 porque Express corre localmente en Electron
+  const API_BASE = 'http://localhost:3001';
 
   const [data, setDataState] = useState({ 
     clientes: [], 
@@ -183,7 +185,7 @@ const getBrandConfig = (user) => {
   return {
     primaryColor: isMeg ? "#ff6600" : "#2563eb",
     accentColor: isMeg ? "#ff7a26" : "#3b82f6",
-    logo: isMeg ? "/logo-meg.png" : "/logo-myorganic.png",
+    logo: isMeg ? "./logo-meg.png" : "./logo-myorganic.png",
     name: isMeg ? "MEG Industrial" : "MyOrganic",
   };
 };
@@ -548,20 +550,20 @@ export default function CreacionPage() {
             direccion: "Andrés de Alcázar 356 OF 603, Edificio Alcázar",
             ciudad: "Rancagua",
             telefono: "+56 9 30782884",
-            logoPath: "/logo-myorganic.png",
+            logoPath: "./logo-myorganic.png",
           }
         : {
             rut: "77.427.875-3",
             direccion: "Av. Apoquindo 6410",
             ciudad: "Las Condes, Santiago",
             telefono: "+56 9 30782884",
-            logoPath: "/logo-meg.png",
+            logoPath: "./logo-meg.png",
           };
 
       let logoImg = null;
       try {
-        const baseURL = typeof window !== "undefined" ? window.location.origin : "";
-        const resp = await fetch(`${baseURL}${empresaData.logoPath}`);
+        // Fetch directo con path relativo (funciona en Electron con file://)
+        const resp = await fetch(empresaData.logoPath);
         const bytes = await resp.arrayBuffer();
         
         const isPng = empresaData.logoPath.toLowerCase().endsWith('.png');
@@ -2426,7 +2428,11 @@ function DocumentoEditor({ documento, clientes, cotizaciones, onSave, onClose, b
                   </div>
                   <div>
                     <Label>Monto aprobado (neto)</Label>
-                    <Input type="number" value={draft.ocMontoNeto ?? 0} onChange={e => setOCMonto(e.target.value)} />
+                    <MoneyInput
+                      valueNumber={draft.ocMontoNeto || 0}
+                      onValueNumberChange={(num) => setOCMonto(num)}
+                      placeholder="0"
+                    />
                   </div>
                   <div className="md:col-span-2">
                     <Label>Observación</Label>
@@ -2457,10 +2463,9 @@ function DocumentoEditor({ documento, clientes, cotizaciones, onSave, onClose, b
                   </div>
                   <div>
                     <Label>Monto Total</Label>
-                    <Input
-                      type="number"
-                      value={draft.facturaVenta?.monto ?? 0}
-                      onChange={e => setFacturaMonto(e.target.value)}
+                    <MoneyInput
+                      valueNumber={draft.facturaVenta?.monto || 0}
+                      onValueNumberChange={(num) => setFacturaMonto(num)}
                       placeholder="0"
                     />
                   </div>
@@ -2618,11 +2623,10 @@ function DocumentoEditor({ documento, clientes, cotizaciones, onSave, onClose, b
                         />
                       </TableCell>
                       <TableCell>
-                        <Input
-                          type="number"
-                          inputMode="numeric"
-                          value={item.precioUnitario}
-                          onChange={(e) => updItem(item.id, 'precioUnitario', e.target.value)}
+                        <MoneyInput
+                          valueNumber={item.precioUnitario || 0}
+                          onValueNumberChange={(num) => updItem(item.id, 'precioUnitario', num)}
+                          placeholder="0"
                         />
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-medium">

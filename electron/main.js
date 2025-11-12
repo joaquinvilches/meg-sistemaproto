@@ -263,11 +263,19 @@ function createWindow() {
 
   // En desarrollo, cargar desde Vite dev server
   // En producción, cargar los archivos estáticos
-  if (process.env.NODE_ENV === 'development') {
+  const isDev = !app.isPackaged;
+
+  if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    // En producción, cargar desde dist empaquetado
+    const appPath = app.getAppPath();
+    const indexPath = path.join(appPath, 'dist', 'index.html');
+    console.log('Loading from:', indexPath);
+    mainWindow.loadFile(indexPath).catch(err => {
+      console.error('Error loading file:', err);
+    });
   }
 
   mainWindow.on('closed', () => {

@@ -182,8 +182,8 @@ function useStore(userKey, toast) {
   const [data, setData] = useState({ cotizaciones: [] });
   const [loading, setLoading] = useState(true);
 
-  // Determinar la URL base de la API
-  const API_BASE = import.meta.env.DEV ? 'http://localhost:3001' : '';
+  // Siempre usar localhost:3001 porque Express corre localmente en Electron
+  const API_BASE = 'http://localhost:3001';
 
   useEffect(() => {
     const loadData = async () => {
@@ -643,9 +643,9 @@ const exportToExcel = () => {
       {/* Logo grande */}
       <div className="flex flex-col items-center justify-center mt-6 mb-4">
         {company === 'MyOrganic' ? (
-          <img src="/logo-myorganic.png" alt="MyOrganic" className="h-20 mb-3" />
+          <img src="./logo-myorganic.png" alt="MyOrganic" className="h-20 mb-3" />
         ) : (
-          <img src="/logo-meg.png" alt="MEG Industrial" className="h-20 mb-3" />
+          <img src="./logo-meg.png" alt="MEG Industrial" className="h-20 mb-3" />
         )}
         <h1 className="text-xl font-bold tracking-tight text-center text-white/90">
           {company}

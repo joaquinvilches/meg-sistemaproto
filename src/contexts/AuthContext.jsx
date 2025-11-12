@@ -24,9 +24,8 @@ export function AuthProvider({ children }) {
 
   const login = async (username, password) => {
     try {
-      // En desarrollo, usar localhost:3001, en producción usar la ruta relativa
-      const isDev = import.meta.env.DEV;
-      const apiUrl = isDev ? 'http://localhost:3001/api/login' : '/api/login';
+      // Siempre usar localhost:3001 porque Express corre localmente en Electron
+      const apiUrl = 'http://localhost:3001/api/login';
 
       const response = await fetch(apiUrl, {
         method: 'POST',
