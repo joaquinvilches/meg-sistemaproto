@@ -23,6 +23,7 @@
   "build": {
     "appId": "com.meg.industrial.sistema",
     "productName": "MEG Sistema",
+    "publish": null,
     "directories": {
       "output": "release",
       "buildResources": "build"
