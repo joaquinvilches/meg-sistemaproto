@@ -235,8 +235,8 @@ export default function CreacionPage() {
     }
   }, [isLoading, isAuthenticated, navigate]);
 
-  // Agregar sufijo _creacion al userKey
-  const userKey = authUser ? `${authUser.userKey}_creacion` : undefined;
+  // Usar el mismo userKey sin sufijo para unificar datos con CotizacionesPage
+  const userKey = authUser ? authUser.userKey : undefined;
 
   const { data, setData, loading } = useCreacionStore(userKey);
 

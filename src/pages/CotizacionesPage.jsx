@@ -189,11 +189,11 @@ function useStore(userKey, toast) {
   // Función de carga de datos (extraída para poder reutilizarla)
   const loadData = useCallback(async () => {
     try {
-      console.log('[CotizacionesPage] Cargando datos...');
-      const res = await fetch(`${API_BASE}/api/data?key=${userKey}`);
+      console.log('[CotizacionesPage] Cargando datos desde /api/creacion...');
+      const res = await fetch(`${API_BASE}/api/creacion?key=${userKey}`);
       if (res.ok) {
         const json = await res.json();
-        // Asegurar que siempre tenga la estructura correcta
+        // Usar el endpoint unificado /api/creacion, pero solo tomamos cotizaciones
         setData({
           cotizaciones: Array.isArray(json?.cotizaciones) ? json.cotizaciones : []
         });
@@ -235,10 +235,29 @@ function useStore(userKey, toast) {
 
   const saveData = async (newData) => {
     try {
-      const response = await fetch(`${API_BASE}/api/data?key=${userKey}`, {
+      console.log('[CotizacionesPage] Guardando datos...');
+
+      // 1. Obtener datos completos actuales para preservar clientes, ordenesCompra, etc.
+      const getCurrentDataRes = await fetch(`${API_BASE}/api/creacion?key=${userKey}`);
+      let fullData = {
+        clientes: [],
+        cotizaciones: [],
+        ordenesCompra: [],
+        ordenesTrabajo: []
+      };
+
+      if (getCurrentDataRes.ok) {
+        fullData = await getCurrentDataRes.json();
+      }
+
+      // 2. Actualizar solo las cotizaciones
+      fullData.cotizaciones = newData.cotizaciones || [];
+
+      // 3. Guardar en /api/creacion (esto ahora disparará PUSH inmediato al VPS)
+      const response = await fetch(`${API_BASE}/api/creacion?key=${userKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newData),
+        body: JSON.stringify(fullData),
       });
 
       if (!response.ok) {
@@ -248,6 +267,7 @@ function useStore(userKey, toast) {
         return;
       }
 
+      console.log('[CotizacionesPage] ✅ Datos guardados y sincronizados');
       setData(newData);
     } catch (e) {
       toast.error('Error al conectar con el servidor. Verifica que la aplicación esté activa.');
