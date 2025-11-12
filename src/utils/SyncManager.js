@@ -135,31 +135,36 @@ class SyncManager {
     this.notifyListeners({ type: 'sync-start' });
 
     try {
-      this.log('🔄 Iniciando sincronización...');
+      this.log('🔄 Iniciando sincronización bidireccional...');
 
-      // 1. PULL: Descargar cambios del servidor
-      const remoteData = await this.pullFromServer();
+      // ESTRATEGIA DE SINCRONIZACIÓN BIDIRECCIONAL:
+      // 1. PUSH: Subir datos locales al VPS primero (por si hay cambios nuevos)
+      // 2. PULL: Descargar datos del VPS (que ahora incluye nuestros cambios + cambios de otros PCs)
 
-      // 2. MERGE: Combinar con datos locales (si hay)
-      const mergedData = remoteData; // Por ahora, simplemente usamos los datos remotos
-
-      // 3. PUSH: Subir cambios locales al servidor
-      const localData = this.getLocalData();
-      if (localData) {
+      // 1. PUSH: Obtener datos locales y subirlos al VPS
+      const localData = await this.getLocalDataFromBackend();
+      if (localData && Object.keys(localData).length > 0) {
+        this.log('📤 Subiendo datos locales al VPS...');
         await this.pushToServer(localData);
+      } else {
+        this.log('⚠️ No hay datos locales para sincronizar');
       }
 
-      // 4. Actualizar timestamp de última sincronización
+      // 2. PULL: Descargar datos actualizados del VPS (incluye cambios de todos los PCs)
+      this.log('📥 Descargando datos actualizados del VPS...');
+      const syncResult = await this.pullFromServer();
+
+      // 3. Actualizar timestamp de última sincronización
       this.lastSyncTime = new Date();
       this.retryCount = 0;
 
-      this.log('✅ Sincronización completada');
+      this.log('✅ Sincronización completada exitosamente');
       this.notifyListeners({
         type: 'sync-success',
         timestamp: this.lastSyncTime
       });
 
-      return { success: true, data: mergedData };
+      return { success: true, data: syncResult.data };
 
     } catch (error) {
       this.log('❌ Error en sincronización:', error);
@@ -210,10 +215,12 @@ class SyncManager {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      this.log('✅ Datos descargados:', data);
+      const result = await response.json();
+      this.log('✅ Datos descargados del VPS');
 
-      return data;
+      // El backend Electron devuelve { success: true, data: {...}, timestamp: ... }
+      // Los datos sincronizados ya están guardados en SQLite local por el backend
+      return result;
 
     } catch (error) {
       clearTimeout(timeoutId);
@@ -232,16 +239,13 @@ class SyncManager {
 
     try {
       const response = await fetch(
-        getSyncUrl('/api/sync/push'),
+        getSyncUrl(`/api/sync/push?userKey=${encodeURIComponent(this.userKey)}`),
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            userKey: this.userKey,
-            data: data
-          }),
+          body: JSON.stringify(data),
           signal: controller.signal
         }
       );
@@ -264,7 +268,46 @@ class SyncManager {
   }
 
   /**
-   * Obtener datos locales (placeholder - se implementará en stores)
+   * Obtener datos locales desde el backend Electron (SQLite)
+   */
+  async getLocalDataFromBackend() {
+    try {
+      this.log('📂 Obteniendo datos locales del backend...');
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), SYNC_CONFIG.REQUEST_TIMEOUT);
+
+      const response = await fetch(
+        getSyncUrl(`/api/creacion?key=${encodeURIComponent(this.userKey)}`),
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      this.log('✅ Datos locales obtenidos:', data);
+
+      return data;
+
+    } catch (error) {
+      this.log('❌ Error obteniendo datos locales:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Obtener datos locales (placeholder - para compatibilidad)
+   * @deprecated Usar getLocalDataFromBackend() en su lugar
    */
   getLocalData() {
     // Esto se implementará en los stores (useCreacionStore, etc.)

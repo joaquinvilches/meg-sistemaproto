@@ -8,8 +8,10 @@
  */
 
 export const SYNC_CONFIG = {
-  // URL del API en tu VPS
-  SYNC_API_URL: import.meta.env.VITE_SYNC_API_URL || 'https://mayorganic.cl',
+  // URL del API - Usa el backend Electron local que se conecta al VPS
+  // En Electron: localhost:3001 (Express local que hace bridge al VPS)
+  // En desarrollo web: https://mayorganic.cl (directo al VPS)
+  SYNC_API_URL: import.meta.env.VITE_SYNC_API_URL || 'http://localhost:3001',
 
   // Intervalo de sincronización automática (en milisegundos)
   SYNC_INTERVAL: 30000, // 30 segundos

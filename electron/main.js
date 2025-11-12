@@ -5,9 +5,18 @@ const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const os = require('os');
+const https = require('https');
+const http = require('http');
 
 // Puerto para el servidor Express local
 const EXPRESS_PORT = 3001;
+
+// Configuración del VPS para sincronización
+const VPS_CONFIG = {
+  baseUrl: 'https://mayorganic.cl',
+  timeout: 10000, // 10 segundos
+  enabled: true
+};
 
 let mainWindow;
 let expressServer;
@@ -19,6 +28,55 @@ const localDbPath = path.join(userDataPath, 'data.db');
 
 console.log('User data path:', userDataPath);
 console.log('Local DB path:', localDbPath);
+
+// Función helper para hacer requests HTTP al VPS
+function httpRequest(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const protocol = urlObj.protocol === 'https:' ? https : http;
+
+    const requestOptions = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      timeout: VPS_CONFIG.timeout
+    };
+
+    const req = protocol.request(requestOptions, (res) => {
+      let data = '';
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        try {
+          const parsedData = JSON.parse(data);
+          resolve({ status: res.statusCode, data: parsedData });
+        } catch (e) {
+          resolve({ status: res.statusCode, data: data });
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+
+    if (options.body) {
+      req.write(JSON.stringify(options.body));
+    }
+
+    req.end();
+  });
+}
 
 // Función para inicializar la base de datos local
 function initDatabase() {
@@ -228,6 +286,136 @@ function startExpressServer() {
           res.json({ success: true, changes: this.changes });
         }
       );
+    });
+
+    // Endpoints de sincronización con VPS
+    // GET /api/sync/pull - Descargar datos del VPS y actualizar SQLite local
+    expressApp.get('/api/sync/pull', async (req, res) => {
+      const userKey = req.query.userKey;
+
+      if (!userKey) {
+        return res.status(400).json({ error: 'Missing userKey parameter' });
+      }
+
+      if (!VPS_CONFIG.enabled) {
+        return res.json({ success: false, message: 'Sync disabled' });
+      }
+
+      try {
+        console.log(`[SYNC] Pulling data from VPS for ${userKey}...`);
+
+        // 1. Hacer request al VPS
+        const vpsUrl = `${VPS_CONFIG.baseUrl}/api/sync/pull?userKey=${encodeURIComponent(userKey)}`;
+        const response = await httpRequest(vpsUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.status !== 200) {
+          console.error(`[SYNC] VPS returned status ${response.status}`);
+          return res.status(response.status).json({
+            success: false,
+            error: 'VPS sync failed',
+            vpsStatus: response.status
+          });
+        }
+
+        const vpsData = response.data;
+
+        // 2. Guardar datos en SQLite local
+        const content = JSON.stringify(vpsData);
+        db.run(
+          'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+          [userKey, content],
+          function(err) {
+            if (err) {
+              console.error('[SYNC] Error saving to local DB:', err);
+              return res.status(500).json({ success: false, error: 'Local DB error' });
+            }
+
+            console.log(`[SYNC] ✓ Data pulled and saved locally for ${userKey}`);
+            res.json({
+              success: true,
+              data: vpsData,
+              timestamp: new Date().toISOString()
+            });
+          }
+        );
+
+      } catch (error) {
+        console.error('[SYNC] Pull error:', error.message);
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          offline: true
+        });
+      }
+    });
+
+    // POST /api/sync/push - Subir datos locales al VPS
+    expressApp.post('/api/sync/push', async (req, res) => {
+      const userKey = req.query.userKey;
+      const data = req.body;
+
+      if (!userKey) {
+        return res.status(400).json({ error: 'Missing userKey parameter' });
+      }
+
+      if (!VPS_CONFIG.enabled) {
+        return res.json({ success: false, message: 'Sync disabled' });
+      }
+
+      try {
+        console.log(`[SYNC] Pushing data to VPS for ${userKey}...`);
+
+        // 1. Subir al VPS
+        const vpsUrl = `${VPS_CONFIG.baseUrl}/api/sync/push?userKey=${encodeURIComponent(userKey)}`;
+        const response = await httpRequest(vpsUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: data
+        });
+
+        if (response.status !== 200) {
+          console.error(`[SYNC] VPS push returned status ${response.status}`);
+          return res.status(response.status).json({
+            success: false,
+            error: 'VPS push failed',
+            vpsStatus: response.status
+          });
+        }
+
+        // 2. También guardar en SQLite local
+        const content = JSON.stringify(data);
+        db.run(
+          'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+          [userKey, content],
+          function(err) {
+            if (err) {
+              console.error('[SYNC] Error saving to local DB after push:', err);
+              // No fallar aquí, ya se guardó en VPS
+            }
+
+            console.log(`[SYNC] ✓ Data pushed to VPS and saved locally for ${userKey}`);
+            res.json({
+              success: true,
+              timestamp: new Date().toISOString()
+            });
+          }
+        );
+
+      } catch (error) {
+        console.error('[SYNC] Push error:', error.message);
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          offline: true
+        });
+      }
     });
 
     // Iniciar servidor

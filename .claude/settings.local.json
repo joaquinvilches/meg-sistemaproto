@@ -27,7 +27,15 @@
       "Bash(if exist release dir release)",
       "Bash(if exist dist dir dist)",
       "Bash(npm run build:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git remote get-url:*)",
+      "Bash(npx asar:*)",
+      "Bash(cat:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nv1.1.0 - Versión de Producción Completa\n\n🔧 Fixes Críticos para Electron Empaquetado:\n- Cambiado BrowserRouter a HashRouter (funciona con file://)\n- URLs de API ahora usan http://localhost:3001 (backend local)\n- Paths de imágenes cambiados a relativos (./logo-*.png)\n- Fix en carga de logos para PDFs (sin window.location.origin)\n- Detección de modo producción con app.isPackaged\n\n💰 Formateo Automático de Montos:\n- Nuevo componente MoneyInput con formato chileno (5.000.000)\n- Aplicado en todos los campos monetarios de CreacionPage\n- Archivo de utilidades compartidas (src/utils/money.jsx)\n- Separadores de miles automáticos mientras se escribe\n\n🖼️ Imágenes y Recursos:\n- Logos visibles en sidebar y UI\n- Logos incluidos correctamente en PDFs exportados\n- Favicon funcionando en ventana de aplicación\n- Paths relativos para compatibilidad con file://\n\n✨ Mejoras Generales:\n- Backend Express local (puerto 3001) funcionando en producción\n- Sincronización con VPS operativa\n- SQLite local con persistencia correcta\n- Instaladores Windows (x64/x86) completamente funcionales\n\n🤖 Generated with Claude Code\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)",
+      "Bash(gh run list:*)"
     ],
     "deny": [],
     "ask": []
