@@ -40,17 +40,57 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-
+# Node modules
 node_modules/
+
+# Build outputs
 .next/
 out/
 dist/
+release/
 .vercel/
+
+# Electron builds
+*.dmg
+*.exe
+*.deb
+*.AppImage
+*.snap
+
+# Databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
+
+# Environment
 .env*
+!.env.example
+
+# OS specific
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Credentials (if using separate file)
+credentials.json
+!credentials.example.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp

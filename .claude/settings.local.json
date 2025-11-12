@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd //c \"taskkill /F /PID 5784\")",
+      "Bash(cmd //c \"taskkill /F /IM node.exe /T 2>nul & taskkill /F /IM electron.exe /T 2>nul & echo Servers stopped\")",
+      "Bash(nul)",
+      "Bash(README.md)",
+      "Bash(find:*)",
+      "Bash(cmd //c dir /b:*)",
+      "Bash(git checkout:*)",
+      "Bash(if not exist build mkdir build)",
+      "Bash(npm run build-icons:*)",
+      "Bash(move:*)",
+      "Bash(cmd //c \"move build\\icons\\icon.icns build\\icon.icns && move build\\icons\\icon.ico build\\icon.ico\")",
+      "Bash(npm run build:win:*)",
+      "Bash(if exist release dir release)",
+      "Bash(if exist dist dir dist)",
+      "Bash(npm run build:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
