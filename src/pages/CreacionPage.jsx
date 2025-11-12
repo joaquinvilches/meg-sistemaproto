@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Trash2, Pencil } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { SyncStatus } from "@/components/SyncStatus";
+import { getSyncManager } from "@/utils/SyncManager";
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { saveAs } from 'file-saver';
@@ -76,39 +77,67 @@ function useCreacionStore(userKey) {
   // Siempre usar localhost:3001 porque Express corre localmente en Electron
   const API_BASE = 'http://localhost:3001';
 
-  const [data, setDataState] = useState({ 
-    clientes: [], 
-    cotizaciones: [], 
+  const [data, setDataState] = useState({
+    clientes: [],
+    cotizaciones: [],
     ordenesCompra: [],
     ordenesTrabajo: [] // ✅ NUEVO
   });
   const [loading, setLoading] = useState(true);
 
+  // Función de carga de datos (extraída para poder reutilizarla)
+  const loadData = useCallback(async () => {
+    if (!userKey) return;
+    try {
+      console.log('[CreacionPage] Cargando datos...');
+      const res = await fetch(`${API_BASE}/api/creacion?key=${encodeURIComponent(userKey)}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error('GET /api/creacion no OK:', res.status, txt);
+        return;
+      }
+      const json = await res.json();
+      // ✅ Asegurar que siempre tenga ordenesTrabajo
+      setDataState({
+        clientes: json.clientes || [],
+        cotizaciones: json.cotizaciones || [],
+        ordenesCompra: json.ordenesCompra || [],
+        ordenesTrabajo: json.ordenesTrabajo || []
+      });
+      console.log('[CreacionPage] Datos cargados');
+    } catch (e) {
+      console.error('Error al cargar datos de creación:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [userKey, API_BASE]);
+
+  // Carga inicial de datos
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Escuchar eventos de sincronización y recargar datos cuando termine
   useEffect(() => {
     if (!userKey) return;
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/creacion?key=${encodeURIComponent(userKey)}`);
-        if (!res.ok) {
-          const txt = await res.text();
-          console.error('GET /api/creacion no OK:', res.status, txt);
-          return;
+
+    try {
+      const syncManager = getSyncManager(userKey);
+
+      const unsubscribe = syncManager.subscribe((event) => {
+        if (event.type === 'sync-success') {
+          console.log('[CreacionPage] Sincronización exitosa, recargando datos...');
+          loadData();
         }
-        const json = await res.json();
-        // ✅ Asegurar que siempre tenga ordenesTrabajo
-        setDataState({
-          clientes: json.clientes || [],
-          cotizaciones: json.cotizaciones || [],
-          ordenesCompra: json.ordenesCompra || [],
-          ordenesTrabajo: json.ordenesTrabajo || []
-        });
-      } catch (e) {
-        console.error('Error al cargar datos de creación:', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [userKey, API_BASE]);
+      });
+
+      return () => {
+        unsubscribe();
+      };
+    } catch (error) {
+      console.error('[CreacionPage] Error al suscribirse a sync:', error);
+    }
+  }, [userKey, loadData]);
 
   const saveData = useCallback(async (newData) => {
     if (!userKey) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/components/Toast";
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Upload, Trash2, FileText } from "lucide-react";
 import { SyncStatus } from "@/components/SyncStatus";
+import { getSyncManager } from "@/utils/SyncManager";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid,
@@ -185,25 +186,52 @@ function useStore(userKey, toast) {
   // Siempre usar localhost:3001 porque Express corre localmente en Electron
   const API_BASE = 'http://localhost:3001';
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/data?key=${userKey}`);
-        if (res.ok) {
-          const json = await res.json();
-          // Asegurar que siempre tenga la estructura correcta
-          setData({
-            cotizaciones: Array.isArray(json?.cotizaciones) ? json.cotizaciones : []
-          });
-        }
-      } catch (e) {
-        console.error('Error al cargar datos:', e);
-      } finally {
-        setLoading(false);
+  // Función de carga de datos (extraída para poder reutilizarla)
+  const loadData = useCallback(async () => {
+    try {
+      console.log('[CotizacionesPage] Cargando datos...');
+      const res = await fetch(`${API_BASE}/api/data?key=${userKey}`);
+      if (res.ok) {
+        const json = await res.json();
+        // Asegurar que siempre tenga la estructura correcta
+        setData({
+          cotizaciones: Array.isArray(json?.cotizaciones) ? json.cotizaciones : []
+        });
+        console.log('[CotizacionesPage] Datos cargados:', json.cotizaciones?.length || 0, 'cotizaciones');
       }
-    };
-    loadData();
+    } catch (e) {
+      console.error('Error al cargar datos:', e);
+    } finally {
+      setLoading(false);
+    }
   }, [userKey, API_BASE]);
+
+  // Carga inicial de datos
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Escuchar eventos de sincronización y recargar datos cuando termine
+  useEffect(() => {
+    if (!userKey) return;
+
+    try {
+      const syncManager = getSyncManager(userKey);
+
+      const unsubscribe = syncManager.subscribe((event) => {
+        if (event.type === 'sync-success') {
+          console.log('[CotizacionesPage] Sincronización exitosa, recargando datos...');
+          loadData();
+        }
+      });
+
+      return () => {
+        unsubscribe();
+      };
+    } catch (error) {
+      console.error('[CotizacionesPage] Error al suscribirse a sync:', error);
+    }
+  }, [userKey, loadData]);
 
   const saveData = async (newData) => {
     try {
