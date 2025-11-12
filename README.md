@@ -132,15 +132,7 @@ meg-sistema/
 └── release/          # Instaladores (generado)
 ```
 
-## 🔐 Credenciales
 
-### MEG Industrial
-- Usuario: `meg_2025`
-- Contraseña: `meg4731$`
-
-### MyOrganic
-- Usuario: `myorganic_2025`
-- Contraseña: `myorganic4731$`
 
 ## 💾 Ubicación de Datos
 
