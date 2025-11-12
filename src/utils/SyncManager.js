@@ -122,7 +122,7 @@ class SyncManager {
    */
   async syncNow() {
     if (this.isSyncing) {
-      this.log('Ya hay una sincronización en curso');
+      this.log('⚠️ Ya hay una sincronización en curso, omitiendo...');
       return { success: false, message: 'Ya sincronizando' };
     }
 
@@ -134,6 +134,8 @@ class SyncManager {
     this.isSyncing = true;
     this.notifyListeners({ type: 'sync-start' });
 
+    const startTime = Date.now();
+
     try {
       this.log('🔄 Iniciando sincronización bidireccional...');
 
@@ -144,21 +146,33 @@ class SyncManager {
       // 1. PUSH: Obtener datos locales y subirlos al VPS
       const localData = await this.getLocalDataFromBackend();
       if (localData && Object.keys(localData).length > 0) {
-        this.log('📤 Subiendo datos locales al VPS...');
+        // Calcular tamaño aproximado de los datos
+        const dataSize = JSON.stringify(localData).length;
+        const dataSizeMB = (dataSize / 1024 / 1024).toFixed(2);
+        this.log(`📤 Subiendo ${dataSizeMB} MB al VPS...`);
+
+        const pushStart = Date.now();
         await this.pushToServer(localData);
+        const pushTime = ((Date.now() - pushStart) / 1000).toFixed(2);
+        this.log(`✓ PUSH completado en ${pushTime}s`);
       } else {
         this.log('⚠️ No hay datos locales para sincronizar');
       }
 
       // 2. PULL: Descargar datos actualizados del VPS (incluye cambios de todos los PCs)
       this.log('📥 Descargando datos actualizados del VPS...');
+      const pullStart = Date.now();
       const syncResult = await this.pullFromServer();
+      const pullTime = ((Date.now() - pullStart) / 1000).toFixed(2);
+      this.log(`✓ PULL completado en ${pullTime}s`);
 
       // 3. Actualizar timestamp de última sincronización
       this.lastSyncTime = new Date();
       this.retryCount = 0;
 
-      this.log('✅ Sincronización completada exitosamente');
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      this.log(`✅ Sincronización completada exitosamente en ${totalTime}s`);
+
       this.notifyListeners({
         type: 'sync-success',
         timestamp: this.lastSyncTime
@@ -171,7 +185,7 @@ class SyncManager {
 
       this.retryCount++;
       if (this.retryCount < SYNC_CONFIG.MAX_RETRIES) {
-        this.log(`Reintentando... (${this.retryCount}/${SYNC_CONFIG.MAX_RETRIES})`);
+        this.log(`Reintentando en 5 segundos... (${this.retryCount}/${SYNC_CONFIG.MAX_RETRIES})`);
         setTimeout(() => this.syncNow(), 5000);
       }
 
@@ -229,6 +243,59 @@ class SyncManager {
   }
 
   /**
+   * Eliminar PDFs base64 de los datos para reducir tamaño del PUSH
+   * Solo envía metadata (nombre, tamaño) al VPS
+   */
+  stripPDFsForSync(data) {
+    if (!data) return data;
+
+    const stripPDFsFromArray = (pdfArray) => {
+      if (!Array.isArray(pdfArray)) return [];
+      return pdfArray.map(pdf => ({
+        id: pdf.id,
+        name: pdf.name,
+        size: pdf.size,
+        type: pdf.type,
+        addedAt: pdf.addedAt,
+        // Eliminamos dataUrl para reducir tamaño
+        dataUrl: null
+      }));
+    };
+
+    const clonedData = JSON.parse(JSON.stringify(data));
+
+    // Eliminar PDFs de cotizaciones
+    if (Array.isArray(clonedData.cotizaciones)) {
+      clonedData.cotizaciones = clonedData.cotizaciones.map(cot => ({
+        ...cot,
+        pdfs: stripPDFsFromArray(cot.pdfs),
+        ot: cot.ot ? {
+          ...cot.ot,
+          pdfs: stripPDFsFromArray(cot.ot.pdfs),
+          items: Array.isArray(cot.ot.items) ? cot.ot.items.map(item => ({
+            ...item,
+            pdfs: stripPDFsFromArray(item.pdfs)
+          })) : []
+        } : cot.ot,
+        oc: cot.oc ? {
+          ...cot.oc,
+          pdfs: stripPDFsFromArray(cot.oc.pdfs)
+        } : cot.oc,
+        facturas: Array.isArray(cot.facturas) ? cot.facturas.map(fac => ({
+          ...fac,
+          pdfs: stripPDFsFromArray(fac.pdfs)
+        })) : [],
+        financiamiento: cot.financiamiento ? {
+          ...cot.financiamiento,
+          pdfs: stripPDFsFromArray(cot.financiamiento.pdfs)
+        } : cot.financiamiento
+      }));
+    }
+
+    return clonedData;
+  }
+
+  /**
    * PUSH: Subir datos al servidor
    */
   async pushToServer(data) {
@@ -238,6 +305,14 @@ class SyncManager {
     const timeoutId = setTimeout(() => controller.abort(), SYNC_CONFIG.REQUEST_TIMEOUT);
 
     try {
+      // Eliminar PDFs para reducir tamaño (de ~50MB a ~500KB)
+      const dataWithoutPDFs = this.stripPDFsForSync(data);
+      const originalSize = JSON.stringify(data).length;
+      const optimizedSize = JSON.stringify(dataWithoutPDFs).length;
+      const reduction = (((originalSize - optimizedSize) / originalSize) * 100).toFixed(1);
+
+      this.log(`📦 Tamaño optimizado: ${(optimizedSize / 1024).toFixed(2)} KB (reducción: ${reduction}%)`);
+
       const response = await fetch(
         getSyncUrl(`/api/sync/push?userKey=${encodeURIComponent(this.userKey)}`),
         {
@@ -245,7 +320,7 @@ class SyncManager {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(dataWithoutPDFs),
           signal: controller.signal
         }
       );

@@ -264,7 +264,7 @@ function startExpressServer() {
       });
     });
 
-    expressApp.post('/api/creacion', async (req, res) => {
+    expressApp.post('/api/creacion', (req, res) => {
       const userKey = req.query.key;
       const data = req.body;
 
@@ -274,43 +274,17 @@ function startExpressServer() {
 
       const content = JSON.stringify(data);
 
-      // 1. Guardar en SQLite local
+      // Guardar en SQLite local (SyncManager se encargará del PUSH automáticamente)
       db.run(
         'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
         [userKey, content],
-        async function(err) {
+        function(err) {
           if (err) {
             console.error('Error saving creacion data:', err);
             return res.status(500).json({ error: 'Database error' });
           }
 
           console.log(`[SAVE] ✓ Datos guardados localmente para ${userKey}`);
-
-          // 2. PUSH inmediato al VPS (si está habilitado)
-          if (VPS_CONFIG.enabled) {
-            try {
-              console.log(`[PUSH] Sincronizando cambios al VPS para ${userKey}...`);
-
-              const vpsUrl = `${VPS_CONFIG.baseUrl}/api/sync/push?userKey=${encodeURIComponent(userKey)}`;
-              const pushResponse = await httpRequest(vpsUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: data
-              });
-
-              if (pushResponse.status === 200) {
-                console.log(`[PUSH] ✓ Cambios sincronizados al VPS para ${userKey}`);
-              } else {
-                console.error(`[PUSH] Error al sincronizar: HTTP ${pushResponse.status}`);
-              }
-            } catch (pushError) {
-              console.error('[PUSH] Error al sincronizar al VPS:', pushError.message);
-              // No fallar la petición si el VPS está offline
-            }
-          }
-
           res.json({ success: true, changes: this.changes });
         }
       );
