@@ -194,8 +194,10 @@ function useStore(userKey, toast) {
       if (res.ok) {
         const json = await res.json();
         // Usar el endpoint unificado /api/creacion, pero solo tomamos cotizaciones
+        // Filtrar cotizaciones eliminadas (soft delete)
+        const cotizaciones = Array.isArray(json?.cotizaciones) ? json.cotizaciones : [];
         setData({
-          cotizaciones: Array.isArray(json?.cotizaciones) ? json.cotizaciones : []
+          cotizaciones: cotizaciones.filter(x => !x.deleted)
         });
         console.log('[CotizacionesPage] Datos cargados:', json.cotizaciones?.length || 0, 'cotizaciones');
       }
@@ -250,8 +252,10 @@ function useStore(userKey, toast) {
         fullData = await getCurrentDataRes.json();
       }
 
-      // 2. Actualizar solo las cotizaciones
-      fullData.cotizaciones = newData.cotizaciones || [];
+      // 2. Actualizar cotizaciones preservando las eliminadas (soft delete)
+      const cotizacionesEliminadas = (fullData.cotizaciones || []).filter(x => x.deleted);
+      const cotizacionesActualizadas = newData.cotizaciones || [];
+      fullData.cotizaciones = [...cotizacionesActualizadas, ...cotizacionesEliminadas];
 
       // 3. Guardar en /api/creacion (esto ahora disparará PUSH inmediato al VPS)
       const response = await fetch(`${API_BASE}/api/creacion?key=${userKey}`, {
@@ -1164,7 +1168,10 @@ const exportToExcel = () => {
   }}
   onDeleteCotizacion={(id) => {
     const cotizaciones = data?.cotizaciones || [];
-    const nuevasCotizaciones = cotizaciones.filter(x => x.id !== id);
+    // Soft delete: marcar como deleted en lugar de eliminar físicamente
+    const nuevasCotizaciones = cotizaciones.map(x =>
+      x.id === id ? { ...x, deleted: true, updatedAt: new Date().toISOString() } : x
+    );
     setData({ ...data, cotizaciones: nuevasCotizaciones });
   }}
 />
