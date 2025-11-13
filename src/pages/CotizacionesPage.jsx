@@ -577,7 +577,10 @@ const compData = useMemo(() => ([
     const byCli = {};
     const cotizaciones = data?.cotizaciones || [];
     for (const c of cotizaciones) {
-      const cli = c.cliente || "Sin cliente";
+      // Soporte para cliente como objeto o string
+      const cli = typeof c.cliente === 'object' && c.cliente !== null
+        ? (c.cliente.nombre || c.cliente.empresa || "Sin cliente")
+        : (c.cliente || "Sin cliente");
       const factSum = sumFacturas(c, usarNetoSinIVA);
       const otTotal = calcOTTotal(c?.ot);
       byCli[cli] ??= { ingresos:0, costos:0 };
@@ -2350,13 +2353,23 @@ function ListadoCotizaciones({
 
 // Filtrar y ordenar
 const rowsAll = (cotizaciones || [])
-  .filter(c =>
-    (filtros.numero ? (c.numero || "").toLowerCase().includes(filtros.numero.toLowerCase()) : true) &&
-    (filtros.cliente ? (c.cliente || "").toLowerCase().includes(filtros.cliente.toLowerCase()) : true) &&
-    (filtros.rut ? (c.rut || "").toLowerCase().includes(filtros.rut.toLowerCase()) : true) &&
-    (filtros.solicitud ? (c.solicitud || "").toLowerCase().includes(filtros.solicitud.toLowerCase()) : true) &&
-    inRange(c.fecha, filtros.desde, filtros.hasta)
-  )
+  .filter(c => {
+    // Soporte para cliente como objeto o string
+    const clienteStr = typeof c.cliente === 'object' && c.cliente !== null
+      ? `${c.cliente.nombre || ''} ${c.cliente.empresa || ''}`.toLowerCase()
+      : (c.cliente || "").toLowerCase();
+    const rutStr = typeof c.cliente === 'object' && c.cliente !== null
+      ? (c.cliente.rut || "").toLowerCase()
+      : (c.rut || "").toLowerCase();
+
+    return (
+      (filtros.numero ? (c.numero || "").toLowerCase().includes(filtros.numero.toLowerCase()) : true) &&
+      (filtros.cliente ? clienteStr.includes(filtros.cliente.toLowerCase()) : true) &&
+      (filtros.rut ? rutStr.includes(filtros.rut.toLowerCase()) : true) &&
+      (filtros.solicitud ? (c.solicitud || "").toLowerCase().includes(filtros.solicitud.toLowerCase()) : true) &&
+      inRange(c.fecha, filtros.desde, filtros.hasta)
+    );
+  })
   .sort((a, b) => {
     const fechaA = a.fecha || "0000-00-00";
     const fechaB = b.fecha || "0000-00-00";
@@ -2415,8 +2428,8 @@ return (
                   <TableRow key={c.id} className="hover:bg-neutral-50">
                     <TableCell>{c.numero}</TableCell>
                     <TableCell>{c.fecha}</TableCell>
-                    <TableCell className="max-w-[220px] truncate">{c.cliente || "—"}</TableCell>
-                    <TableCell className="max-w-[140px] truncate">{c.rut || "—"}</TableCell>
+                    <TableCell className="max-w-[220px] truncate">{typeof c.cliente === 'object' && c.cliente !== null ? (c.cliente.nombre || c.cliente.empresa || "—") : (c.cliente || "—")}</TableCell>
+                    <TableCell className="max-w-[140px] truncate">{typeof c.cliente === 'object' && c.cliente !== null ? (c.cliente.rut || "—") : (c.rut || "—")}</TableCell>
                     <TableCell className="max-w-[220px] truncate">{c.solicitud || "—"}</TableCell>
 
                     <TableCell className="max-w-[200px] truncate">{c?.oc?.clienteNombre || "—"}</TableCell>
