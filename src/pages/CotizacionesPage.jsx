@@ -179,7 +179,7 @@ function MoneyTooltip({ active, payload, label, title }) {
 /********************
  * PERSISTENCIA
  *******************/
-function useStore(userKey, toast) {
+function useStore(userKey, toast, isEditing) {
   const [data, setData] = useState({ cotizaciones: [] });
   const [loading, setLoading] = useState(true);
 
@@ -214,6 +214,7 @@ function useStore(userKey, toast) {
   }, [loadData]);
 
   // Escuchar eventos de sincronización y recargar datos cuando termine
+  // IMPORTANTE: Solo recargar si NO hay edición activa (callback isEditing)
   useEffect(() => {
     if (!userKey) return;
 
@@ -222,6 +223,12 @@ function useStore(userKey, toast) {
 
       const unsubscribe = syncManager.subscribe((event) => {
         if (event.type === 'sync-success') {
+          // Verificar si hay edición activa usando el callback
+          if (typeof isEditing === 'function' && isEditing()) {
+            console.log('[CotizacionesPage] Sincronización exitosa pero hay edición activa, omitiendo recarga');
+            return;
+          }
+
           console.log('[CotizacionesPage] Sincronización exitosa, recargando datos...');
           loadData();
         }
@@ -233,7 +240,7 @@ function useStore(userKey, toast) {
     } catch (error) {
       console.error('[CotizacionesPage] Error al suscribirse a sync:', error);
     }
-  }, [userKey, loadData]);
+  }, [userKey, loadData, isEditing]);
 
   const saveData = async (newData) => {
     try {
@@ -451,7 +458,16 @@ export default function App() {
 function MainApp({ user, company, onLogout }) {
   const navigate = useNavigate();
   const toast = useToast();
-  const { data, setData } = useStore(user, toast); // ← pasa el userKey y toast aquí
+
+  // Estado de modal de edición (levantado para detectar edición activa)
+  const [sel, setSel] = useState(null); // cotización seleccionada (para modal)
+
+  // Hook con callback para detectar edición activa
+  const { data, setData } = useStore(user, toast, () => {
+    // Retorna true si hay modal de edición abierto
+    return sel !== null;
+  });
+
   const [tab, setTab] = useState("dashboard");
   const [usarNetoSinIVA, setUsarNetoSinIVA] = useState(true);
   const [filtros, setFiltros] = useState({
@@ -1158,6 +1174,8 @@ const exportToExcel = () => {
   paginaActual={paginaActual}
   setPaginaActual={setPaginaActual}
   ITEMS_POR_PAGINA={ITEMS_POR_PAGINA}
+  sel={sel}
+  setSel={setSel}
   onDuplicar={duplicarCotizacion}
   onSaveCotizacion={(updated) => {
     const cotizaciones = data?.cotizaciones || [];
@@ -2326,8 +2344,9 @@ function ListadoCotizaciones({
   onDuplicar,
   onSaveCotizacion,
   onDeleteCotizacion,
+  sel,        // ← Ahora recibido como prop desde MainApp
+  setSel,     // ← Ahora recibido como prop desde MainApp
 }){
-  const [sel, setSel] = useState(null); // cotización seleccionada (para modal)
 
 // Filtrar y ordenar
 const rowsAll = (cotizaciones || [])

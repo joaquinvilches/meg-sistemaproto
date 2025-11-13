@@ -73,7 +73,7 @@ function deleteCondicionesPlantilla(nombre) {
 /* ===========================
    Store de persistencia (API)
    =========================== */
-function useCreacionStore(userKey) {
+function useCreacionStore(userKey, isEditing) {
   // Siempre usar localhost:3001 porque Express corre localmente en Electron
   const API_BASE = 'http://localhost:3001';
 
@@ -118,6 +118,7 @@ function useCreacionStore(userKey) {
   }, [loadData]);
 
   // Escuchar eventos de sincronización y recargar datos cuando termine
+  // IMPORTANTE: Solo recargar si NO hay edición activa (callback isEditing)
   useEffect(() => {
     if (!userKey) return;
 
@@ -126,6 +127,12 @@ function useCreacionStore(userKey) {
 
       const unsubscribe = syncManager.subscribe((event) => {
         if (event.type === 'sync-success') {
+          // Verificar si hay edición activa usando el callback
+          if (typeof isEditing === 'function' && isEditing()) {
+            console.log('[CreacionPage] Sincronización exitosa pero hay edición activa, omitiendo recarga');
+            return;
+          }
+
           console.log('[CreacionPage] Sincronización exitosa, recargando datos...');
           loadData();
         }
@@ -137,7 +144,7 @@ function useCreacionStore(userKey) {
     } catch (error) {
       console.error('[CreacionPage] Error al suscribirse a sync:', error);
     }
-  }, [userKey, loadData]);
+  }, [userKey, loadData, isEditing]);
 
   const saveData = useCallback(async (newData) => {
     if (!userKey) {
@@ -254,19 +261,23 @@ export default function CreacionPage() {
   // Usar el mismo userKey sin sufijo para unificar datos con CotizacionesPage
   const userKey = authUser ? authUser.userKey : undefined;
 
-  const { data, setData, loading } = useCreacionStore(userKey);
-
+  // Estados de edición (deben estar antes de useCreacionStore)
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: "", empresa: "", rut: "", direccion: "", ciudad: "", telefono: "", correo: ""
   });
   const [clienteEnEdicion, setClienteEnEdicion] = useState(null); // ID del cliente que se está editando
+  const [editRef, setEditRef] = useState(null);
+
+  // Hook con callback para detectar edición activa
+  const { data, setData, loading } = useCreacionStore(userKey, () => {
+    // Retorna true si hay alguna edición activa
+    return clienteEnEdicion !== null || editRef !== null;
+  });
 
   const clientes = data.clientes || [];
   const cotizaciones = data.cotizaciones || [];
   const ordenesCompra = data.ordenesCompra || [];
   const ordenesTrabajo = data.ordenesTrabajo || []; // ✅ NUEVO
-
-  const [editRef, setEditRef] = useState(null);
 
   // Estados de filtros
   const [filtrosCot, setFiltrosCot] = useState({
