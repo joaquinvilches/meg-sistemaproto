@@ -1,6 +1,8 @@
 /**
  * MEG Sistema - VPS Backend Server
  * Servidor de sincronización para aplicación Electron multi-usuario
+ *
+ * v1.2.6 - FIX CRÍTICO: Merge en lugar de Replace
  */
 
 require('dotenv').config();
@@ -55,8 +57,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -64,6 +66,129 @@ app.use((req, res, next) => {
   console.log(`[${timestamp}] ${req.method} ${req.path}`);
   next();
 });
+
+// ═══════════════════════════════════════
+// Funciones de Merge
+// ═══════════════════════════════════════
+
+/**
+ * Merge de datos con estrategia Last-Write-Wins
+ *
+ * @param {Object} existingData - Datos actuales en VPS
+ * @param {Object} newData - Datos nuevos desde PC
+ * @returns {Object} - Datos mergeados
+ */
+function mergeData(existingData, newData) {
+  console.log('🔀 Iniciando merge de datos...');
+
+  const merged = { ...existingData };
+
+  // Merge de cada array (cotizaciones, clientes, ordenesCompra, ordenesTrabajo)
+  for (const key of Object.keys(newData)) {
+    if (Array.isArray(newData[key])) {
+      const existingArray = existingData[key] || [];
+      const newArray = newData[key] || [];
+
+      console.log(`  📊 ${key}: Existentes=${existingArray.length}, Nuevos=${newArray.length}`);
+
+      // Merge por ID único
+      merged[key] = mergeArrayByUniqueId(existingArray, newArray, key);
+
+      console.log(`  ✅ ${key}: Resultado=${merged[key].length}`);
+    } else {
+      // Para datos no-array, simplemente sobrescribir
+      merged[key] = newData[key];
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Merge de arrays por ID único con Last-Write-Wins
+ *
+ * @param {Array} existingArray - Array existente
+ * @param {Array} newArray - Array nuevo
+ * @param {String} arrayType - Tipo de array (para determinar campo ID)
+ * @returns {Array} - Array mergeado
+ */
+function mergeArrayByUniqueId(existingArray, newArray, arrayType) {
+  // Determinar campo de ID según tipo
+  const idField = getIdField(arrayType);
+
+  // Crear mapa de elementos existentes por ID
+  const existingMap = new Map();
+  existingArray.forEach(item => {
+    if (item[idField]) {
+      existingMap.set(item[idField], item);
+    }
+  });
+
+  // Merge: agregar o actualizar con Last-Write-Wins
+  newArray.forEach(newItem => {
+    if (!newItem[idField]) {
+      console.warn(`⚠️ Item sin ${idField}:`, newItem);
+      return;
+    }
+
+    const existingItem = existingMap.get(newItem[idField]);
+
+    if (!existingItem) {
+      // Nuevo item: agregarlo
+      existingMap.set(newItem[idField], newItem);
+      console.log(`  ➕ Nuevo: ${newItem[idField]}`);
+    } else {
+      // Item existente: Last-Write-Wins (comparar fechas)
+      const shouldUpdate = isNewer(newItem, existingItem);
+
+      if (shouldUpdate) {
+        existingMap.set(newItem[idField], newItem);
+        console.log(`  🔄 Actualizado: ${newItem[idField]}`);
+      } else {
+        console.log(`  ⏭️  Omitido (más antiguo): ${newItem[idField]}`);
+      }
+    }
+  });
+
+  // Convertir mapa de vuelta a array
+  return Array.from(existingMap.values());
+}
+
+/**
+ * Obtener campo de ID según tipo de array
+ */
+function getIdField(arrayType) {
+  switch (arrayType) {
+    case 'cotizaciones':
+      return 'numero';
+    case 'clientes':
+      return 'rut';
+    case 'ordenesCompra':
+      return 'numero';
+    case 'ordenesTrabajo':
+      return 'numero';
+    default:
+      return 'id';
+  }
+}
+
+/**
+ * Comparar si newItem es más reciente que existingItem
+ * Estrategia: Last-Write-Wins basado en fecha
+ */
+function isNewer(newItem, existingItem) {
+  // Si existe campo 'updatedAt' o 'fecha', comparar
+  const newDate = new Date(newItem.updatedAt || newItem.fecha || 0);
+  const existingDate = new Date(existingItem.updatedAt || existingItem.fecha || 0);
+
+  // Si las fechas son válidas, comparar
+  if (!isNaN(newDate.getTime()) && !isNaN(existingDate.getTime())) {
+    return newDate >= existingDate;
+  }
+
+  // Si no hay fechas, asumir que el nuevo es más reciente
+  return true;
+}
 
 // ═══════════════════════════════════════
 // Inicialización de Base de Datos
@@ -110,7 +235,7 @@ async function initDatabase() {
     console.log('✅ Base de datos inicializada correctamente');
 
     // Insertar datos iniciales si no existen
-    const userKeys = ['meg', 'myorganic', 'meg_creacion', 'myorganic_creacion'];
+    const userKeys = ['meg', 'myorganic'];
 
     for (const key of userKeys) {
       const result = await pool.query(
@@ -119,13 +244,16 @@ async function initDatabase() {
       );
 
       if (result.rows.length === 0) {
-        const defaultContent = key.includes('_creacion')
-          ? { clientes: [], cotizaciones: [], ordenesCompra: [], ordenesTrabajo: [] }
-          : { cotizaciones: [] };
+        const defaultContent = {
+          clientes: [],
+          cotizaciones: [],
+          ordenesCompra: [],
+          ordenesTrabajo: []
+        };
 
         await pool.query(
           'INSERT INTO sync_data (id, user_key, content) VALUES ($1, $2, $3)',
-          [key, key.replace('_creacion', ''), JSON.stringify(defaultContent)]
+          [key, key, JSON.stringify(defaultContent)]
         );
 
         console.log(`✅ Datos iniciales creados para: ${key}`);
@@ -149,13 +277,13 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.2.6'
   });
 });
 
 /**
  * PULL: Descargar datos del servidor
- * GET /api/sync/pull?userKey=meg_creacion
+ * GET /api/sync/pull?userKey=myorganic
  */
 app.get('/api/sync/pull', async (req, res) => {
   try {
@@ -174,21 +302,26 @@ app.get('/api/sync/pull', async (req, res) => {
 
     if (result.rows.length === 0) {
       // Si no existe, crear registro vacío
-      const defaultContent = userKey.includes('_creacion')
-        ? { clientes: [], cotizaciones: [], ordenesCompra: [], ordenesTrabajo: [] }
-        : { cotizaciones: [] };
+      const defaultContent = {
+        clientes: [],
+        cotizaciones: [],
+        ordenesCompra: [],
+        ordenesTrabajo: []
+      };
 
       await pool.query(
         'INSERT INTO sync_data (id, user_key, content) VALUES ($1, $2, $3) RETURNING content, version, updated_at',
-        [userKey, userKey.replace('_creacion', ''), JSON.stringify(defaultContent)]
+        [userKey, userKey, JSON.stringify(defaultContent)]
       );
 
+      console.log(`✅ PULL - Registro creado para ${userKey}`);
       return res.json(defaultContent);
     }
 
     const data = result.rows[0].content;
 
-    console.log(`✅ PULL exitoso - Registros: ${Object.keys(data).length}`);
+    console.log(`✅ PULL exitoso - userKey: ${userKey}`);
+    console.log(`   📊 Datos: ${JSON.stringify(Object.keys(data).map(k => `${k}=${Array.isArray(data[k]) ? data[k].length : '?'}`))}`);
 
     res.json(data);
 
@@ -199,26 +332,48 @@ app.get('/api/sync/pull', async (req, res) => {
 });
 
 /**
- * PUSH: Subir datos al servidor
- * POST /api/sync/push
- * Body: { userKey: 'meg_creacion', data: {...} }
+ * PUSH: Subir datos al servidor CON MERGE
+ * POST /api/sync/push?userKey=myorganic
+ * Body: { cotizaciones: [...], clientes: [...], ... }
  */
 app.post('/api/sync/push', async (req, res) => {
   try {
-    const { userKey, data } = req.body;
+    const userKey = req.query.userKey;
+    const newData = req.body;
 
     if (!userKey) {
       return res.status(400).json({ error: 'userKey es requerido' });
     }
 
-    if (!data) {
+    if (!newData || Object.keys(newData).length === 0) {
       return res.status(400).json({ error: 'data es requerido' });
     }
 
     console.log(`📤 PUSH - userKey: ${userKey}`);
-    console.log(`📤 Datos recibidos:`, Object.keys(data));
+    console.log(`📤 Datos nuevos recibidos:`, Object.keys(newData).map(k => `${k}=${Array.isArray(newData[k]) ? newData[k].length : '?'}`));
 
-    // Actualizar o insertar datos
+    // 1. Obtener datos existentes
+    const existingResult = await pool.query(
+      'SELECT content FROM sync_data WHERE id = $1',
+      [userKey]
+    );
+
+    let mergedData;
+
+    if (existingResult.rows.length === 0) {
+      // No existe: crear nuevo registro
+      console.log('📝 Creando nuevo registro...');
+      mergedData = newData;
+    } else {
+      // Existe: hacer MERGE
+      const existingData = existingResult.rows[0].content;
+      console.log(`📂 Datos existentes:`, Object.keys(existingData).map(k => `${k}=${Array.isArray(existingData[k]) ? existingData[k].length : '?'}`));
+
+      mergedData = mergeData(existingData, newData);
+      console.log(`✅ Datos mergeados:`, Object.keys(mergedData).map(k => `${k}=${Array.isArray(mergedData[k]) ? mergedData[k].length : '?'}`));
+    }
+
+    // 2. Guardar datos mergeados
     const result = await pool.query(`
       INSERT INTO sync_data (id, user_key, content, version, updated_at)
       VALUES ($1, $2, $3, 1, CURRENT_TIMESTAMP)
@@ -228,12 +383,22 @@ app.post('/api/sync/push', async (req, res) => {
         version = sync_data.version + 1,
         updated_at = CURRENT_TIMESTAMP
       RETURNING version, updated_at
-    `, [userKey, userKey.replace('_creacion', ''), JSON.stringify(data)]);
+    `, [userKey, userKey, JSON.stringify(mergedData)]);
 
-    // Log de auditoría
+    // 3. Log de auditoría
     await pool.query(
       'INSERT INTO sync_log (user_key, action, details) VALUES ($1, $2, $3)',
-      [userKey, 'PUSH', JSON.stringify({ timestamp: new Date() })]
+      [userKey, 'PUSH', JSON.stringify({
+        timestamp: new Date(),
+        newItems: Object.keys(newData).reduce((acc, k) => {
+          acc[k] = Array.isArray(newData[k]) ? newData[k].length : 0;
+          return acc;
+        }, {}),
+        mergedItems: Object.keys(mergedData).reduce((acc, k) => {
+          acc[k] = Array.isArray(mergedData[k]) ? mergedData[k].length : 0;
+          return acc;
+        }, {})
+      })]
     );
 
     console.log(`✅ PUSH exitoso - Nueva versión: ${result.rows[0].version}`);
@@ -241,7 +406,8 @@ app.post('/api/sync/push', async (req, res) => {
     res.json({
       success: true,
       version: result.rows[0].version,
-      updated_at: result.rows[0].updated_at
+      updated_at: result.rows[0].updated_at,
+      merged: mergedData
     });
 
   } catch (error) {
@@ -298,7 +464,9 @@ app.get('/api/stats', async (req, res) => {
         version,
         updated_at,
         jsonb_array_length(content->'clientes') as num_clientes,
-        jsonb_array_length(content->'cotizaciones') as num_cotizaciones
+        jsonb_array_length(content->'cotizaciones') as num_cotizaciones,
+        jsonb_array_length(content->'ordenesCompra') as num_ordenes_compra,
+        jsonb_array_length(content->'ordenesTrabajo') as num_ordenes_trabajo
       FROM sync_data
       ORDER BY updated_at DESC
     `);
@@ -340,6 +508,7 @@ async function startServer() {
     app.listen(PORT, '0.0.0.0', () => {
       console.log('═══════════════════════════════════════');
       console.log('  MEG Sistema - VPS Backend Server');
+      console.log('  v1.2.6 - MERGE FIX');
       console.log('═══════════════════════════════════════');
       console.log(`✅ Servidor corriendo en puerto ${PORT}`);
       console.log(`✅ Ambiente: ${process.env.NODE_ENV || 'production'}`);

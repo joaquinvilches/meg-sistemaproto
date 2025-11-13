@@ -1158,7 +1158,7 @@ const exportToExcel = () => {
   onSaveCotizacion={(updated) => {
     const cotizaciones = data?.cotizaciones || [];
     const nuevasCotizaciones = cotizaciones.map(x =>
-      x.id === updated.id ? updated : x
+      x.id === updated.id ? { ...updated, updatedAt: new Date().toISOString() } : x
     );
     setData({ ...data, cotizaciones: nuevasCotizaciones });
   }}
@@ -1488,6 +1488,7 @@ const c = {
   monto: Number(montoCot||0),
   comentarios,                      // ya agregado en el paso anterior
   pdfs: cotPDFs,
+  updatedAt: new Date().toISOString(), // Para sincronización
 
   oc: {
     clienteNombre: ocClienteNombre,
