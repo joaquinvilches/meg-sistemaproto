@@ -97,12 +97,12 @@ function useCreacionStore(userKey) {
         return;
       }
       const json = await res.json();
-      // ✅ Asegurar que siempre tenga ordenesTrabajo
+      // ✅ Filtrar items eliminados (soft delete)
       setDataState({
-        clientes: json.clientes || [],
-        cotizaciones: json.cotizaciones || [],
-        ordenesCompra: json.ordenesCompra || [],
-        ordenesTrabajo: json.ordenesTrabajo || []
+        clientes: (json.clientes || []).filter(x => !x.deleted),
+        cotizaciones: (json.cotizaciones || []).filter(x => !x.deleted),
+        ordenesCompra: (json.ordenesCompra || []).filter(x => !x.deleted),
+        ordenesTrabajo: (json.ordenesTrabajo || []).filter(x => !x.deleted)
       });
       console.log('[CreacionPage] Datos cargados');
     } catch (e) {
@@ -165,6 +165,22 @@ function useCreacionStore(userKey) {
     console.log('═══════════════════════════════════════');
 
     try {
+      // Obtener datos actuales para preservar items eliminados
+      const getCurrentRes = await fetch(`${API_BASE}/api/creacion?key=${encodeURIComponent(userKey)}`);
+      let fullData = newData;
+
+      if (getCurrentRes.ok) {
+        const current = await getCurrentRes.json();
+
+        // Preservar items eliminados (soft delete)
+        fullData = {
+          clientes: [...newData.clientes, ...(current.clientes || []).filter(x => x.deleted)],
+          cotizaciones: [...newData.cotizaciones, ...(current.cotizaciones || []).filter(x => x.deleted)],
+          ordenesCompra: [...newData.ordenesCompra, ...(current.ordenesCompra || []).filter(x => x.deleted)],
+          ordenesTrabajo: [...newData.ordenesTrabajo, ...(current.ordenesTrabajo || []).filter(x => x.deleted)]
+        };
+      }
+
       const url = `${API_BASE}/api/creacion?key=${encodeURIComponent(userKey)}`;
 
       const response = await fetch(url, {
@@ -172,7 +188,7 @@ function useCreacionStore(userKey) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(newData)
+        body: JSON.stringify(fullData)
       });
       
       console.log('📥 Status recibido:', response.status);
@@ -312,9 +328,14 @@ export default function CreacionPage() {
   };
 
   const eliminarCliente = (id) => {
+    // Soft delete: marcar como deleted y eliminar PDFs
     setData({
       ...data,
-      clientes: data.clientes.filter(c => c.id !== id)
+      clientes: data.clientes.map(c =>
+        c.id === id
+          ? { ...c, deleted: true, updatedAt: new Date().toISOString(), pdfs: [] }
+          : c
+      )
     });
   };
 
@@ -434,19 +455,34 @@ export default function CreacionPage() {
     }
 
     if (tipo === "cotizacion") {
+      // Soft delete: marcar como deleted y eliminar PDFs
       setData({
         ...data,
-        cotizaciones: data.cotizaciones.filter(c => c.id !== id)
+        cotizaciones: data.cotizaciones.map(c =>
+          c.id === id
+            ? { ...c, deleted: true, updatedAt: new Date().toISOString(), pdfs: [], items: (c.items || []).map(i => ({ ...i, pdfs: [] })) }
+            : c
+        )
       });
     } else if (tipo === "orden_compra") {
+      // Soft delete: marcar como deleted y eliminar PDFs
       setData({
         ...data,
-        ordenesCompra: data.ordenesCompra.filter(oc => oc.id !== id)
+        ordenesCompra: data.ordenesCompra.map(oc =>
+          oc.id === id
+            ? { ...oc, deleted: true, updatedAt: new Date().toISOString(), pdfs: [], items: (oc.items || []).map(i => ({ ...i, pdfs: [] })) }
+            : oc
+        )
       });
     } else if (tipo === "orden_trabajo") {
+      // Soft delete: marcar como deleted y eliminar PDFs
       setData({
         ...data,
-        ordenesTrabajo: data.ordenesTrabajo.filter(ot => ot.id !== id)
+        ordenesTrabajo: data.ordenesTrabajo.map(ot =>
+          ot.id === id
+            ? { ...ot, deleted: true, updatedAt: new Date().toISOString(), pdfs: [], items: (ot.items || []).map(i => ({ ...i, pdfs: [] })) }
+            : ot
+        )
       });
     }
   };

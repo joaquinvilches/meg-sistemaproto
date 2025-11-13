@@ -1168,10 +1168,28 @@ const exportToExcel = () => {
   }}
   onDeleteCotizacion={(id) => {
     const cotizaciones = data?.cotizaciones || [];
-    // Soft delete: marcar como deleted en lugar de eliminar físicamente
-    const nuevasCotizaciones = cotizaciones.map(x =>
-      x.id === id ? { ...x, deleted: true, updatedAt: new Date().toISOString() } : x
-    );
+    // Soft delete: marcar como deleted y eliminar PDFs para ahorrar espacio
+    const nuevasCotizaciones = cotizaciones.map(x => {
+      if (x.id !== id) return x;
+
+      // Eliminar PDFs de la cotización y sus sub-entidades para reducir tamaño
+      const cleaned = {
+        ...x,
+        deleted: true,
+        updatedAt: new Date().toISOString(),
+        pdfs: [], // Eliminar PDFs raíz
+        oc: x.oc ? { ...x.oc, pdfs: [] } : x.oc, // Eliminar PDFs de OC
+        ot: x.ot ? {
+          ...x.ot,
+          pdfs: [], // Eliminar PDFs de OT
+          items: (x.ot.items || []).map(item => ({ ...item, pdfs: [] })) // Eliminar PDFs de items
+        } : x.ot,
+        facturas: (x.facturas || []).map(f => ({ ...f, pdfs: [] })), // Eliminar PDFs de facturas
+        financiamiento: x.financiamiento ? { ...x.financiamiento, pdfs: [] } : x.financiamiento
+      };
+
+      return cleaned;
+    });
     setData({ ...data, cotizaciones: nuevasCotizaciones });
   }}
 />

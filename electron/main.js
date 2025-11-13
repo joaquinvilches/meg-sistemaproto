@@ -59,6 +59,83 @@ function sanitizeObject(obj) {
   return obj;
 }
 
+/**
+ * Limpieza automática: eliminar items con deleted=true y más de 30 días
+ * Esto mantiene la base de datos limpia sin crecer indefinidamente
+ */
+function cleanupDeletedItems() {
+  if (!db) return;
+
+  console.log('[CLEANUP] Iniciando limpieza automática de items eliminados...');
+
+  const DAYS_TO_KEEP = 30;
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - DAYS_TO_KEEP);
+  const cutoffISO = cutoffDate.toISOString();
+
+  db.all('SELECT id, content FROM app_data', [], (err, rows) => {
+    if (err) {
+      console.error('[CLEANUP] Error al leer datos:', err);
+      return;
+    }
+
+    let totalCleaned = 0;
+
+    rows.forEach(row => {
+      try {
+        const data = JSON.parse(row.content);
+        let hasChanges = false;
+
+        // Limpiar cada tipo de array
+        ['cotizaciones', 'clientes', 'ordenesCompra', 'ordenesTrabajo'].forEach(key => {
+          if (Array.isArray(data[key])) {
+            const originalLength = data[key].length;
+
+            // Filtrar: eliminar items con deleted=true Y updatedAt > 30 días
+            data[key] = data[key].filter(item => {
+              if (!item.deleted) return true; // Mantener items NO eliminados
+
+              const itemDate = item.updatedAt || item.fecha || null;
+              if (!itemDate) return true; // Si no tiene fecha, mantener por seguridad
+
+              return itemDate > cutoffISO; // Mantener si es más reciente que 30 días
+            });
+
+            const cleaned = originalLength - data[key].length;
+            if (cleaned > 0) {
+              console.log(`[CLEANUP] ${row.id} - ${key}: eliminados ${cleaned} items antiguos`);
+              totalCleaned += cleaned;
+              hasChanges = true;
+            }
+          }
+        });
+
+        // Si hubo cambios, actualizar en la base de datos
+        if (hasChanges) {
+          const updatedContent = JSON.stringify(data);
+          db.run(
+            'UPDATE app_data SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [updatedContent, row.id],
+            (updateErr) => {
+              if (updateErr) {
+                console.error(`[CLEANUP] Error actualizando ${row.id}:`, updateErr);
+              }
+            }
+          );
+        }
+      } catch (parseErr) {
+        console.error(`[CLEANUP] Error parseando datos de ${row.id}:`, parseErr);
+      }
+    });
+
+    if (totalCleaned > 0) {
+      console.log(`[CLEANUP] ✅ Limpieza completada: ${totalCleaned} items eliminados`);
+    } else {
+      console.log('[CLEANUP] ✅ No hay items antiguos para limpiar');
+    }
+  });
+}
+
 // Función helper para hacer requests HTTP al VPS
 function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
@@ -161,10 +238,24 @@ function initDatabase() {
 
             stmt.finalize(() => {
               console.log('Database initialized');
+
+              // Ejecutar limpieza automática al iniciar
+              setTimeout(() => cleanupDeletedItems(), 5000);
+
+              // Programar limpieza automática cada 24 horas
+              setInterval(() => cleanupDeletedItems(), 24 * 60 * 60 * 1000);
+
               resolve();
             });
           } else {
             console.log('Database already has data');
+
+            // Ejecutar limpieza automática al iniciar
+            setTimeout(() => cleanupDeletedItems(), 5000);
+
+            // Programar limpieza automática cada 24 horas
+            setInterval(() => cleanupDeletedItems(), 24 * 60 * 60 * 1000);
+
             resolve();
           }
         });
@@ -179,7 +270,8 @@ function startExpressServer() {
     const expressApp = express();
 
     expressApp.use(cors());
-    expressApp.use(express.json({ limit: '50mb' }));
+    expressApp.use(express.json({ limit: '100mb' }));
+    expressApp.use(express.urlencoded({ limit: '100mb', extended: true }));
 
     // Endpoint de health check
     expressApp.get('/api/health', (req, res) => {

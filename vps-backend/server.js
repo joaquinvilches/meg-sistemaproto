@@ -190,6 +190,73 @@ function isNewer(newItem, existingItem) {
   return true;
 }
 
+/**
+ * Limpieza automática: eliminar items con deleted=true y más de 30 días
+ * Esto mantiene la base de datos limpia sin crecer indefinidamente
+ */
+async function cleanupDeletedItems() {
+  try {
+    console.log('[CLEANUP] Iniciando limpieza automática de items eliminados...');
+
+    const DAYS_TO_KEEP = 30;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - DAYS_TO_KEEP);
+    const cutoffISO = cutoffDate.toISOString();
+
+    const result = await pool.query('SELECT id, content FROM sync_data');
+    let totalCleaned = 0;
+
+    for (const row of result.rows) {
+      try {
+        const data = row.content;
+        let hasChanges = false;
+
+        // Limpiar cada tipo de array
+        ['cotizaciones', 'clientes', 'ordenesCompra', 'ordenesTrabajo'].forEach(key => {
+          if (Array.isArray(data[key])) {
+            const originalLength = data[key].length;
+
+            // Filtrar: eliminar items con deleted=true Y updatedAt > 30 días
+            data[key] = data[key].filter(item => {
+              if (!item.deleted) return true; // Mantener items NO eliminados
+
+              const itemDate = item.updatedAt || item.fecha || null;
+              if (!itemDate) return true; // Si no tiene fecha, mantener por seguridad
+
+              return itemDate > cutoffISO; // Mantener si es más reciente que 30 días
+            });
+
+            const cleaned = originalLength - data[key].length;
+            if (cleaned > 0) {
+              console.log(`[CLEANUP] ${row.id} - ${key}: eliminados ${cleaned} items antiguos`);
+              totalCleaned += cleaned;
+              hasChanges = true;
+            }
+          }
+        });
+
+        // Si hubo cambios, actualizar en la base de datos
+        if (hasChanges) {
+          await pool.query(
+            'UPDATE sync_data SET content = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [JSON.stringify(data), row.id]
+          );
+        }
+      } catch (parseErr) {
+        console.error(`[CLEANUP] Error procesando ${row.id}:`, parseErr);
+      }
+    }
+
+    if (totalCleaned > 0) {
+      console.log(`[CLEANUP] ✅ Limpieza completada: ${totalCleaned} items eliminados`);
+    } else {
+      console.log('[CLEANUP] ✅ No hay items antiguos para limpiar');
+    }
+  } catch (error) {
+    console.error('[CLEANUP] ❌ Error en limpieza automática:', error);
+  }
+}
+
 // ═══════════════════════════════════════
 // Inicialización de Base de Datos
 // ═══════════════════════════════════════
@@ -277,7 +344,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.2.6'
+    version: '1.2.8'
   });
 });
 
@@ -504,15 +571,22 @@ async function startServer() {
     // Inicializar base de datos
     await initDatabase();
 
+    // Ejecutar limpieza automática al iniciar (después de 10 segundos)
+    setTimeout(() => cleanupDeletedItems(), 10000);
+
+    // Programar limpieza automática cada 24 horas
+    setInterval(() => cleanupDeletedItems(), 24 * 60 * 60 * 1000);
+
     // Iniciar servidor
     app.listen(PORT, '0.0.0.0', () => {
       console.log('═══════════════════════════════════════');
       console.log('  MEG Sistema - VPS Backend Server');
-      console.log('  v1.2.6 - MERGE FIX');
+      console.log('  v1.2.8 - SOFT DELETE + CLEANUP');
       console.log('═══════════════════════════════════════');
       console.log(`✅ Servidor corriendo en puerto ${PORT}`);
       console.log(`✅ Ambiente: ${process.env.NODE_ENV || 'production'}`);
       console.log(`✅ PostgreSQL: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+      console.log(`✅ Limpieza automática: cada 24 horas (30 días retención)`);
       console.log('═══════════════════════════════════════');
     });
 
