@@ -35,8 +35,8 @@ jobs:
           name: MEG-Sistema-Windows
           path: release/*.exe
 
-  build-mac:
-    runs-on: macos-latest
+  build-mac-intel:
+    runs-on: macos-13  # Intel x64 architecture
 
     steps:
       - name: Checkout code
@@ -51,13 +51,40 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build Mac App
-        run: npm run build:mac
+      - name: Build Mac App (Intel x64)
+        run: npm run build:mac:x64
 
-      - name: Upload Mac Installer
+      - name: Upload Mac Intel Installer
         uses: actions/upload-artifact@v4
         with:
-          name: MEG-Sistema-Mac
+          name: MEG-Sistema-Mac-Intel
+          path: |
+            release/*.dmg
+            release/*.zip
+
+  build-mac-arm:
+    runs-on: macos-latest  # Apple Silicon (M1/M2/M3) arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Mac App (Apple Silicon arm64)
+        run: npm run build:mac:arm64
+
+      - name: Upload Mac ARM Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MEG-Sistema-Mac-ARM
           path: |
             release/*.dmg
             release/*.zip
@@ -90,7 +117,7 @@ jobs:
   #           release/*.deb
 
   create-release:
-    needs: [build-windows, build-mac]
+    needs: [build-windows, build-mac-intel, build-mac-arm]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -103,7 +130,8 @@ jobs:
         with:
           files: |
             MEG-Sistema-Windows/*
-            MEG-Sistema-Mac/*
+            MEG-Sistema-Mac-Intel/*
+            MEG-Sistema-Mac-ARM/*
           draft: false
           prerelease: false
         env:
