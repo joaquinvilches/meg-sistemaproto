@@ -29,6 +29,36 @@ const localDbPath = path.join(userDataPath, 'data.db');
 console.log('User data path:', userDataPath);
 console.log('Local DB path:', localDbPath);
 
+// Función para sanitizar strings (eliminar caracteres de control problemáticos)
+function sanitizeString(str) {
+  if (typeof str !== 'string') return str;
+  // Reemplazar saltos de línea, retornos de carro y tabs con espacios
+  return str.replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Función para sanitizar recursivamente todos los strings en un objeto
+function sanitizeObject(obj) {
+  if (obj === null || obj === undefined) return obj;
+
+  if (typeof obj === 'string') {
+    return sanitizeString(obj);
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeObject(item));
+  }
+
+  if (typeof obj === 'object') {
+    const sanitized = {};
+    for (const key in obj) {
+      sanitized[key] = sanitizeObject(obj[key]);
+    }
+    return sanitized;
+  }
+
+  return obj;
+}
+
 // Función helper para hacer requests HTTP al VPS
 function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
@@ -71,7 +101,9 @@ function httpRequest(url, options = {}) {
     });
 
     if (options.body) {
-      req.write(JSON.stringify(options.body));
+      // Sanitizar datos antes de enviar al VPS para evitar errores de JSON
+      const sanitizedBody = sanitizeObject(options.body);
+      req.write(JSON.stringify(sanitizedBody));
     }
 
     req.end();
