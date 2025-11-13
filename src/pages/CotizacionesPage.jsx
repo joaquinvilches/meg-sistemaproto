@@ -189,11 +189,11 @@ function useStore(userKey, toast, isEditing) {
   // Función de carga de datos (extraída para poder reutilizarla)
   const loadData = useCallback(async () => {
     try {
-      console.log('[CotizacionesPage] Cargando datos desde /api/creacion...');
-      const res = await fetch(`${API_BASE}/api/creacion?key=${userKey}`);
+      console.log('[CotizacionesPage] Cargando datos desde /api/data...');
+      const res = await fetch(`${API_BASE}/api/data?key=${userKey}`);
       if (res.ok) {
         const json = await res.json();
-        // Usar el endpoint unificado /api/creacion, pero solo tomamos cotizaciones
+        // Usar el endpoint /api/data para el apartado principal (registro manual)
         // Filtrar cotizaciones eliminadas (soft delete)
         const cotizaciones = Array.isArray(json?.cotizaciones) ? json.cotizaciones : [];
         setData({
@@ -246,13 +246,10 @@ function useStore(userKey, toast, isEditing) {
     try {
       console.log('[CotizacionesPage] Guardando datos...');
 
-      // 1. Obtener datos completos actuales para preservar clientes, ordenesCompra, etc.
-      const getCurrentDataRes = await fetch(`${API_BASE}/api/creacion?key=${userKey}`);
+      // 1. Obtener datos completos actuales
+      const getCurrentDataRes = await fetch(`${API_BASE}/api/data?key=${userKey}`);
       let fullData = {
-        clientes: [],
-        cotizaciones: [],
-        ordenesCompra: [],
-        ordenesTrabajo: []
+        cotizaciones: []
       };
 
       if (getCurrentDataRes.ok) {
@@ -264,11 +261,11 @@ function useStore(userKey, toast, isEditing) {
       const cotizacionesActualizadas = newData.cotizaciones || [];
       fullData.cotizaciones = [...cotizacionesActualizadas, ...cotizacionesEliminadas];
 
-      // 3. Guardar en /api/creacion (esto ahora disparará PUSH inmediato al VPS)
-      const response = await fetch(`${API_BASE}/api/creacion?key=${userKey}`, {
+      // 3. Guardar en /api/data (apartado principal - registro manual)
+      const response = await fetch(`${API_BASE}/api/data?key=${userKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullData),
+        body: JSON.stringify({ data: fullData }),
       });
 
       if (!response.ok) {

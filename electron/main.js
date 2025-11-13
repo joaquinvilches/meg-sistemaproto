@@ -368,7 +368,10 @@ function startExpressServer() {
         return res.status(400).json({ error: 'Missing key parameter' });
       }
 
-      db.get('SELECT content FROM app_data WHERE id = ?', [userKey], (err, row) => {
+      // Agregar sufijo _creacion para consistencia con VPS
+      const creacionKey = userKey + '_creacion';
+
+      db.get('SELECT content FROM app_data WHERE id = ?', [creacionKey], (err, row) => {
         if (err) {
           console.error('Error fetching creacion data:', err);
           return res.status(500).json({ error: 'Database error' });
@@ -396,19 +399,22 @@ function startExpressServer() {
         return res.status(400).json({ error: 'Missing key parameter' });
       }
 
+      // Agregar sufijo _creacion para consistencia con VPS
+      const creacionKey = userKey + '_creacion';
+
       const content = JSON.stringify(data);
 
       // Guardar en SQLite local (SyncManager se encargará del PUSH automáticamente)
       db.run(
         'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-        [userKey, content],
+        [creacionKey, content],
         function(err) {
           if (err) {
             console.error('Error saving creacion data:', err);
             return res.status(500).json({ error: 'Database error' });
           }
 
-          console.log(`[SAVE] ✓ Datos guardados localmente para ${userKey}`);
+          console.log(`[SAVE] ✓ Datos guardados localmente para ${creacionKey}`);
           res.json({ success: true, changes: this.changes });
         }
       );
