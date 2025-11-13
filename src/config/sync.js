@@ -17,7 +17,7 @@ export const SYNC_CONFIG = {
   SYNC_INTERVAL: 30000, // 30 segundos
 
   // Timeout para requests (en milisegundos)
-  REQUEST_TIMEOUT: 60000, // 60 segundos (aumentado por PDFs grandes)
+  REQUEST_TIMEOUT: 120000, // 120 segundos (2 minutos - para sincronizar PDFs completos)
 
   // Reintentos en caso de error
   MAX_RETRIES: 3,

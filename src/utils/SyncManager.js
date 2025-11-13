@@ -243,75 +243,24 @@ class SyncManager {
   }
 
   /**
-   * Eliminar PDFs base64 de los datos para reducir tamaño del PUSH
-   * Solo envía metadata (nombre, tamaño) al VPS
-   */
-  stripPDFsForSync(data) {
-    if (!data) return data;
-
-    const stripPDFsFromArray = (pdfArray) => {
-      if (!Array.isArray(pdfArray)) return [];
-      return pdfArray.map(pdf => ({
-        id: pdf.id,
-        name: pdf.name,
-        size: pdf.size,
-        type: pdf.type,
-        addedAt: pdf.addedAt,
-        // Eliminamos dataUrl para reducir tamaño
-        dataUrl: null
-      }));
-    };
-
-    const clonedData = JSON.parse(JSON.stringify(data));
-
-    // Eliminar PDFs de cotizaciones
-    if (Array.isArray(clonedData.cotizaciones)) {
-      clonedData.cotizaciones = clonedData.cotizaciones.map(cot => ({
-        ...cot,
-        pdfs: stripPDFsFromArray(cot.pdfs),
-        ot: cot.ot ? {
-          ...cot.ot,
-          pdfs: stripPDFsFromArray(cot.ot.pdfs),
-          items: Array.isArray(cot.ot.items) ? cot.ot.items.map(item => ({
-            ...item,
-            pdfs: stripPDFsFromArray(item.pdfs)
-          })) : []
-        } : cot.ot,
-        oc: cot.oc ? {
-          ...cot.oc,
-          pdfs: stripPDFsFromArray(cot.oc.pdfs)
-        } : cot.oc,
-        facturas: Array.isArray(cot.facturas) ? cot.facturas.map(fac => ({
-          ...fac,
-          pdfs: stripPDFsFromArray(fac.pdfs)
-        })) : [],
-        financiamiento: cot.financiamiento ? {
-          ...cot.financiamiento,
-          pdfs: stripPDFsFromArray(cot.financiamiento.pdfs)
-        } : cot.financiamiento
-      }));
-    }
-
-    return clonedData;
-  }
-
-  /**
-   * PUSH: Subir datos al servidor
+   * PUSH: Subir datos al servidor (CON PDFs completos)
    */
   async pushToServer(data) {
-    this.log('⬆️ Subiendo datos al servidor...');
+    this.log('⬆️ Subiendo datos completos al servidor (incluye PDFs)...');
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), SYNC_CONFIG.REQUEST_TIMEOUT);
 
     try {
-      // Eliminar PDFs para reducir tamaño (de ~50MB a ~500KB)
-      const dataWithoutPDFs = this.stripPDFsForSync(data);
-      const originalSize = JSON.stringify(data).length;
-      const optimizedSize = JSON.stringify(dataWithoutPDFs).length;
-      const reduction = (((originalSize - optimizedSize) / originalSize) * 100).toFixed(1);
+      // Calcular tamaño de datos completos (con PDFs)
+      const dataSize = JSON.stringify(data).length;
+      const dataSizeMB = (dataSize / 1024 / 1024).toFixed(2);
 
-      this.log(`📦 Tamaño optimizado: ${(optimizedSize / 1024).toFixed(2)} KB (reducción: ${reduction}%)`);
+      this.log(`📦 Tamaño total: ${dataSizeMB} MB (incluye PDFs base64)`);
+
+      if (dataSize > 100 * 1024 * 1024) {
+        this.log('⚠️ ADVERTENCIA: Datos > 100 MB, la sincronización puede tardar varios minutos');
+      }
 
       const response = await fetch(
         getSyncUrl(`/api/sync/push?userKey=${encodeURIComponent(this.userKey)}`),
@@ -320,7 +269,7 @@ class SyncManager {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(dataWithoutPDFs),
+          body: JSON.stringify(data), // ← Enviar DATOS COMPLETOS con PDFs
           signal: controller.signal
         }
       );
@@ -332,7 +281,7 @@ class SyncManager {
       }
 
       const result = await response.json();
-      this.log('✅ Datos subidos correctamente');
+      this.log('✅ Datos completos subidos correctamente (PDFs incluidos)');
 
       return result;
 
