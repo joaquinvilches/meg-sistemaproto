@@ -309,14 +309,14 @@ export default function CreacionPage() {
       setData({
         ...data,
         clientes: data.clientes.map(c =>
-          c.id === clienteEnEdicion ? { ...nuevoCliente, id: c.id } : c
+          c.id === clienteEnEdicion ? { ...nuevoCliente, id: c.id, updatedAt: new Date().toISOString() } : c
         )
       });
       toast.success("Proveedor actualizado correctamente");
       setClienteEnEdicion(null);
     } else {
       // Crear nuevo cliente
-      const cliente = { ...nuevoCliente, id: uid() };
+      const cliente = { ...nuevoCliente, id: uid(), updatedAt: new Date().toISOString() };
       setData({
         ...data,
         clientes: [...data.clientes, cliente]
@@ -383,6 +383,7 @@ export default function CreacionPage() {
       tipo,
       numero: numeroAutomatico,
       fecha: todayISO(),
+      updatedAt: new Date().toISOString(),
       cliente: null,
       items: [{ id: uid(), codigo: "", cantidad: 1, descripcion: "", precioUnitario: 0, valorTotal: 0 }],
       totalNeto: 0,
@@ -431,21 +432,24 @@ export default function CreacionPage() {
   function guardarDocumentoDesdeEditor(docActualizado) {
     if (!docActualizado || !docActualizado.id || !docActualizado.tipo) return;
 
+    // Añadir updatedAt para sincronización correcta entre PCs
+    const docConTimestamp = { ...docActualizado, updatedAt: new Date().toISOString() };
+
     const nuevasCotizaciones = data.cotizaciones.map(d =>
-      d.id === docActualizado.id ? docActualizado : d
+      d.id === docConTimestamp.id ? docConTimestamp : d
     );
     const nuevasOrdenes = data.ordenesCompra.map(d =>
-      d.id === docActualizado.id ? docActualizado : d
+      d.id === docConTimestamp.id ? docConTimestamp : d
     );
     const nuevasOT = data.ordenesTrabajo.map(d =>
-      d.id === docActualizado.id ? docActualizado : d
+      d.id === docConTimestamp.id ? docConTimestamp : d
     );
 
     setData({
       ...data,
-      cotizaciones: docActualizado.tipo === "cotizacion" ? nuevasCotizaciones : data.cotizaciones,
-      ordenesCompra: docActualizado.tipo === "orden_compra" ? nuevasOrdenes : data.ordenesCompra,
-      ordenesTrabajo: docActualizado.tipo === "orden_trabajo" ? nuevasOT : data.ordenesTrabajo,
+      cotizaciones: docConTimestamp.tipo === "cotizacion" ? nuevasCotizaciones : data.cotizaciones,
+      ordenesCompra: docConTimestamp.tipo === "orden_compra" ? nuevasOrdenes : data.ordenesCompra,
+      ordenesTrabajo: docConTimestamp.tipo === "orden_trabajo" ? nuevasOT : data.ordenesTrabajo,
     });
   }
 
