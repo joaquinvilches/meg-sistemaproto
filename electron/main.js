@@ -422,6 +422,7 @@ function startExpressServer() {
 
     // Endpoints de sincronización con VPS
     // GET /api/sync/pull - Descargar datos del VPS y actualizar SQLite local
+    // 🆕 SINCRONIZA AMBOS APARTADOS: principal (userKey) y creación (userKey_creacion)
     expressApp.get('/api/sync/pull', async (req, res) => {
       const userKey = req.query.userKey;
 
@@ -434,9 +435,9 @@ function startExpressServer() {
       }
 
       try {
-        console.log(`[SYNC] Pulling data from VPS for ${userKey}...`);
+        console.log(`[SYNC] 🔄 Pulling data from VPS for ${userKey} (AMBOS apartados)...`);
 
-        // 1. Hacer request al VPS
+        // 1️⃣ PULL APARTADO PRINCIPAL (userKey)
         const vpsUrl = `${VPS_CONFIG.baseUrl}/api/sync/pull?userKey=${encodeURIComponent(userKey)}`;
         const response = await httpRequest(vpsUrl, {
           method: 'GET',
@@ -446,7 +447,7 @@ function startExpressServer() {
         });
 
         if (response.status !== 200) {
-          console.error(`[SYNC] VPS returned status ${response.status}`);
+          console.error(`[SYNC] VPS returned status ${response.status} for ${userKey}`);
           return res.status(response.status).json({
             success: false,
             error: 'VPS sync failed',
@@ -456,25 +457,63 @@ function startExpressServer() {
 
         const vpsData = response.data;
 
-        // 2. Guardar datos en SQLite local
-        const content = JSON.stringify(vpsData);
-        db.run(
-          'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-          [userKey, content],
-          function(err) {
-            if (err) {
-              console.error('[SYNC] Error saving to local DB:', err);
-              return res.status(500).json({ success: false, error: 'Local DB error' });
-            }
-
-            console.log(`[SYNC] ✓ Data pulled and saved locally for ${userKey}`);
-            res.json({
-              success: true,
-              data: vpsData,
-              timestamp: new Date().toISOString()
-            });
+        // 2️⃣ PULL APARTADO DE CREACIÓN (userKey_creacion)
+        const creacionKey = userKey + '_creacion';
+        const vpsCreacionUrl = `${VPS_CONFIG.baseUrl}/api/sync/pull?userKey=${encodeURIComponent(creacionKey)}`;
+        const creacionResponse = await httpRequest(vpsCreacionUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
-        );
+        });
+
+        if (creacionResponse.status !== 200) {
+          console.error(`[SYNC] VPS returned status ${creacionResponse.status} for ${creacionKey}`);
+          // No fallar aquí, continuar con apartado principal
+        }
+
+        const vpsCreacionData = creacionResponse.data;
+
+        // 3️⃣ Guardar AMBOS en SQLite local
+        const content = JSON.stringify(vpsData);
+        const creacionContent = JSON.stringify(vpsCreacionData);
+
+        // Guardar apartado principal
+        await new Promise((resolve, reject) => {
+          db.run(
+            'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+            [userKey, content],
+            function(err) {
+              if (err) reject(err);
+              else {
+                console.log(`[SYNC] ✓ PULL completado para ${userKey}`);
+                resolve();
+              }
+            }
+          );
+        });
+
+        // Guardar apartado de creación
+        await new Promise((resolve, reject) => {
+          db.run(
+            'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+            [creacionKey, creacionContent],
+            function(err) {
+              if (err) reject(err);
+              else {
+                console.log(`[SYNC] ✓ PULL completado para ${creacionKey}`);
+                resolve();
+              }
+            }
+          );
+        });
+
+        console.log(`[SYNC] ✅ Data pulled and saved locally for BOTH apartments`);
+        res.json({
+          success: true,
+          data: vpsData,
+          timestamp: new Date().toISOString()
+        });
 
       } catch (error) {
         console.error('[SYNC] Pull error:', error.message);
@@ -487,6 +526,7 @@ function startExpressServer() {
     });
 
     // POST /api/sync/push - Subir datos locales al VPS
+    // 🆕 SINCRONIZA AMBOS APARTADOS: principal (userKey) y creación (userKey_creacion)
     expressApp.post('/api/sync/push', async (req, res) => {
       const userKey = req.query.userKey;
       const data = req.body;
@@ -500,9 +540,9 @@ function startExpressServer() {
       }
 
       try {
-        console.log(`[SYNC] Pushing data to VPS for ${userKey}...`);
+        console.log(`[SYNC] 🔄 Pushing data to VPS for ${userKey} (AMBOS apartados)...`);
 
-        // 1. Subir al VPS
+        // 1️⃣ PUSH APARTADO PRINCIPAL (userKey)
         const vpsUrl = `${VPS_CONFIG.baseUrl}/api/sync/push?userKey=${encodeURIComponent(userKey)}`;
         const response = await httpRequest(vpsUrl, {
           method: 'POST',
@@ -513,7 +553,7 @@ function startExpressServer() {
         });
 
         if (response.status !== 200) {
-          console.error(`[SYNC] VPS push returned status ${response.status}`);
+          console.error(`[SYNC] VPS push returned status ${response.status} for ${userKey}`);
           return res.status(response.status).json({
             success: false,
             error: 'VPS push failed',
@@ -521,7 +561,47 @@ function startExpressServer() {
           });
         }
 
-        // 2. También guardar en SQLite local
+        console.log(`[SYNC] ✓ PUSH completado para ${userKey}`);
+
+        // 2️⃣ PUSH APARTADO DE CREACIÓN (userKey_creacion)
+        const creacionKey = userKey + '_creacion';
+
+        // Obtener datos de creación desde SQLite local
+        const creacionData = await new Promise((resolve, reject) => {
+          db.get('SELECT content FROM app_data WHERE id = ?', [creacionKey], (err, row) => {
+            if (err) reject(err);
+            else if (!row) resolve(null);
+            else {
+              try {
+                resolve(JSON.parse(row.content));
+              } catch (e) {
+                reject(e);
+              }
+            }
+          });
+        });
+
+        if (creacionData) {
+          const vpsCreacionUrl = `${VPS_CONFIG.baseUrl}/api/sync/push?userKey=${encodeURIComponent(creacionKey)}`;
+          const creacionResponse = await httpRequest(vpsCreacionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: creacionData
+          });
+
+          if (creacionResponse.status !== 200) {
+            console.error(`[SYNC] VPS push returned status ${creacionResponse.status} for ${creacionKey}`);
+            // No fallar aquí, el principal ya se subió
+          } else {
+            console.log(`[SYNC] ✓ PUSH completado para ${creacionKey}`);
+          }
+        } else {
+          console.log(`[SYNC] ⚠️ No hay datos locales para ${creacionKey}, omitiendo PUSH`);
+        }
+
+        // 3️⃣ Guardar apartado principal en SQLite local
         const content = JSON.stringify(data);
         db.run(
           'INSERT OR REPLACE INTO app_data (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
@@ -532,7 +612,7 @@ function startExpressServer() {
               // No fallar aquí, ya se guardó en VPS
             }
 
-            console.log(`[SYNC] ✓ Data pushed to VPS and saved locally for ${userKey}`);
+            console.log(`[SYNC] ✅ Data pushed to VPS and saved locally for BOTH apartments`);
             res.json({
               success: true,
               timestamp: new Date().toISOString()
