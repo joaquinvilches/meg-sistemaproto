@@ -413,8 +413,8 @@ export default function CreacionPage() {
       ocEmisor: tipo === "orden_trabajo" ? "" : undefined,
       ocMontoNeto: tipo === "orden_trabajo" ? 0 : undefined,
       ocObservacion: tipo === "orden_trabajo" ? "" : undefined,
-      // ✅ NUEVO: Factura de venta asociada (SOLO para OT)
-      facturaVenta: tipo === "orden_trabajo" ? { codigo: "", rut: "", monto: 0 } : undefined,
+      // ✅ NUEVO: Facturas de venta asociadas (SOLO para OT) - ahora es un array
+      facturasVenta: tipo === "orden_trabajo" ? [] : undefined,
     };
     
     if (tipo === "cotizacion") {
@@ -767,11 +767,15 @@ export default function CreacionPage() {
 
         const hayInfoOC = documento.ocNumero || documento.ocFecha || documento.ocMontoNeto || documento.ocObservacion;
         const hayCliente = documento.cliente;
-        const hayFactura = documento.facturaVenta && (
-          documento.facturaVenta.codigo ||
-          documento.facturaVenta.rut ||
-          documento.facturaVenta.monto
-        );
+        // Migración: si existe facturaVenta (objeto antiguo), convertir a array
+        let facturasVentaArray = [];
+        if (documento.facturasVenta && Array.isArray(documento.facturasVenta)) {
+          facturasVentaArray = documento.facturasVenta.filter(f => f.codigo || f.rut || f.monto);
+        } else if (documento.facturaVenta && (documento.facturaVenta.codigo || documento.facturaVenta.rut || documento.facturaVenta.monto)) {
+          // Migración automática de objeto antiguo a array
+          facturasVentaArray = [documento.facturaVenta];
+        }
+        const hayFacturas = facturasVentaArray.length > 0;
 
         if (cotRelacionada || hayInfoOC || hayCliente) {
           ensureSpace(line * 13);
@@ -790,7 +794,7 @@ export default function CreacionPage() {
           // Calcular altura aproximada del contenido
           let estimatedHeight = boxPadding * 2;
           if (cotRelacionada || hayInfoOC) estimatedHeight += line * 4.5;
-          if (hayFactura) estimatedHeight += line * 4; // ✅ NUEVO: Espacio para factura
+          if (hayFacturas) estimatedHeight += line * (3 + facturasVentaArray.length * 3.5); // Espacio dinámico según cantidad de facturas
           if (hayCliente) estimatedHeight += line * 6.5;
           if ((documento.ocObservacion || "").trim() !== "") estimatedHeight += line * 3;
 
@@ -835,14 +839,8 @@ export default function CreacionPage() {
               rowY -= line * 1.1;
             }
 
-            // ✅ NUEVO: Factura de Venta Asociada
-            const hayFactura = documento.facturaVenta && (
-              documento.facturaVenta.codigo ||
-              documento.facturaVenta.rut ||
-              documento.facturaVenta.monto
-            );
-
-            if (hayFactura) {
+            // ✅ Facturas de Venta Asociadas (array múltiple)
+            if (hayFacturas) {
               // Línea separadora
               rowY -= line * 0.3;
               page.drawLine({
@@ -853,7 +851,8 @@ export default function CreacionPage() {
               });
               rowY -= line * 0.8;
 
-              page.drawText("Factura de Venta:", {
+              const tituloFacturas = facturasVentaArray.length === 1 ? "Factura de Venta:" : `Facturas de Venta (${facturasVentaArray.length}):`;
+              page.drawText(tituloFacturas, {
                 x: col1X,
                 y: rowY,
                 size: 9,
@@ -862,22 +861,30 @@ export default function CreacionPage() {
               });
               rowY -= line * 1.1;
 
-              const facturaData = [];
-              if (documento.facturaVenta.codigo) {
-                facturaData.push(["Código:", documento.facturaVenta.codigo]);
-              }
-              if (documento.facturaVenta.rut) {
-                facturaData.push(["RUT:", documento.facturaVenta.rut]);
-              }
-              if (documento.facturaVenta.monto) {
-                facturaData.push(["Monto:", fmtMoney(documento.facturaVenta.monto)]);
-              }
+              // Iterar sobre todas las facturas
+              facturasVentaArray.forEach((factura, index) => {
+                const facturaData = [];
+                if (factura.codigo) {
+                  facturaData.push(["Código:", factura.codigo]);
+                }
+                if (factura.rut) {
+                  facturaData.push(["RUT:", factura.rut]);
+                }
+                if (factura.monto) {
+                  facturaData.push(["Monto:", fmtMoney(factura.monto)]);
+                }
 
-              for (const [lbl, val] of facturaData) {
-                page.drawText(lbl, { x: col1X, y: rowY, size: 8.5, font: bold, color: rgb(0.2, 0.2, 0.2) });
-                page.drawText(val, { x: col1X + 55, y: rowY, size: 8.5, font, color: rgb(0.3, 0.3, 0.3) });
-                rowY -= line * 1.0;
-              }
+                for (const [lbl, val] of facturaData) {
+                  page.drawText(lbl, { x: col1X, y: rowY, size: 8.5, font: bold, color: rgb(0.2, 0.2, 0.2) });
+                  page.drawText(val, { x: col1X + 55, y: rowY, size: 8.5, font, color: rgb(0.3, 0.3, 0.3) });
+                  rowY -= line * 1.0;
+                }
+
+                // Separador entre facturas (si hay más de una)
+                if (index < facturasVentaArray.length - 1) {
+                  rowY -= line * 0.3;
+                }
+              });
             }
           }
 
@@ -2365,10 +2372,35 @@ export default function CreacionPage() {
    Componente: DocumentoEditor
    =========================== */
 function DocumentoEditor({ documento, clientes, cotizaciones, onSave, onClose, brandConfig }) {
-  const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(documento)));
+  // Función de migración: convierte facturaVenta (objeto antiguo) a facturasVenta (array)
+  const migrarDocumento = (doc) => {
+    const migrado = JSON.parse(JSON.stringify(doc));
+
+    // Migración para Orden de Trabajo: facturaVenta → facturasVenta
+    if (migrado.tipo === "orden_trabajo") {
+      // Si ya tiene facturasVenta (array), no hacer nada
+      if (!migrado.facturasVenta || !Array.isArray(migrado.facturasVenta)) {
+        // Si tiene facturaVenta (objeto antiguo), convertir a array
+        if (migrado.facturaVenta && (migrado.facturaVenta.codigo || migrado.facturaVenta.rut || migrado.facturaVenta.monto)) {
+          migrado.facturasVenta = [{ ...migrado.facturaVenta, id: uid() }];
+          delete migrado.facturaVenta; // Eliminar el campo antiguo
+        } else {
+          // Inicializar como array vacío
+          migrado.facturasVenta = [];
+        }
+      } else {
+        // Asegurar que cada factura tenga un ID
+        migrado.facturasVenta = migrado.facturasVenta.map(f => ({ ...f, id: f.id || uid() }));
+      }
+    }
+
+    return migrado;
+  };
+
+  const [draft, setDraft] = useState(() => migrarDocumento(documento));
 
   useEffect(() => {
-    setDraft(JSON.parse(JSON.stringify(documento)));
+    setDraft(migrarDocumento(documento));
   }, [documento]);
 
   const [showPicker, setShowPicker] = useState(false);
@@ -2405,10 +2437,27 @@ function DocumentoEditor({ documento, clientes, cotizaciones, onSave, onClose, b
   const setOCEmisor =  (v) => setDraft(d => ({ ...d, ocEmisor: v }));
   const setOCMonto  =  (v) => setDraft(d => ({ ...d, ocMontoNeto: Number(v) || 0 }));
   const setOCObs    =  (v) => setDraft(d => ({ ...d, ocObservacion: v }));
-  // 🧾 Setters de Factura de Venta (solo OT)
-  const setFacturaCodigo = (v) => setDraft(d => ({ ...d, facturaVenta: { ...d.facturaVenta, codigo: v } }));
-  const setFacturaRut = (v) => setDraft(d => ({ ...d, facturaVenta: { ...d.facturaVenta, rut: v } }));
-  const setFacturaMonto = (v) => setDraft(d => ({ ...d, facturaVenta: { ...d.facturaVenta, monto: Number(v) || 0 } }));
+  // 🧾 Setters de Facturas de Venta (array múltiple - solo OT)
+  const addFacturaVenta = () => {
+    setDraft(d => ({
+      ...d,
+      facturasVenta: [...(d.facturasVenta || []), { id: uid(), codigo: "", rut: "", monto: 0 }]
+    }));
+  };
+  const updateFacturaVenta = (id, field, value) => {
+    setDraft(d => ({
+      ...d,
+      facturasVenta: (d.facturasVenta || []).map(f =>
+        f.id === id ? { ...f, [field]: field === 'monto' ? (Number(value) || 0) : value } : f
+      )
+    }));
+  };
+  const deleteFacturaVenta = (id) => {
+    setDraft(d => ({
+      ...d,
+      facturasVenta: (d.facturasVenta || []).filter(f => f.id !== id)
+    }));
+  };
 
   const addItem = () => {
     setDraft(d => {
@@ -2525,35 +2574,63 @@ function DocumentoEditor({ documento, clientes, cotizaciones, onSave, onClose, b
                 </div>
               </div>
 
-              {/* 🧾 Bloque Factura de Venta Asociada */}
+              {/* 🧾 Bloque Facturas de Venta Asociadas (múltiples) */}
               <div className="mt-2 rounded-xl border p-4 bg-green-50 border-green-200">
-                <h3 className="font-semibold mb-3 text-green-900">Factura de Venta Asociada</h3>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div>
-                    <Label>Código de Factura</Label>
-                    <Input
-                      value={draft.facturaVenta?.codigo || ""}
-                      onChange={e => setFacturaCodigo(e.target.value)}
-                      placeholder="Ej: FV-2025-001"
-                    />
-                  </div>
-                  <div>
-                    <Label>RUT</Label>
-                    <Input
-                      value={draft.facturaVenta?.rut || ""}
-                      onChange={e => setFacturaRut(e.target.value)}
-                      placeholder="Ej: 12.345.678-9"
-                    />
-                  </div>
-                  <div>
-                    <Label>Monto Total</Label>
-                    <MoneyInput
-                      valueNumber={draft.facturaVenta?.monto || 0}
-                      onValueNumberChange={(num) => setFacturaMonto(num)}
-                      placeholder="0"
-                    />
-                  </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-green-900">Facturas de Venta Asociadas</h3>
+                  <Button type="button" onClick={addFacturaVenta} size="sm" className="bg-green-600 hover:bg-green-700">
+                    + Agregar Factura
+                  </Button>
                 </div>
+
+                {(draft.facturasVenta || []).length === 0 ? (
+                  <p className="text-sm text-green-700 italic">No hay facturas de venta asociadas. Haz clic en "Agregar Factura" para añadir una.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {(draft.facturasVenta || []).map((factura, idx) => (
+                      <div key={factura.id} className="grid md:grid-cols-[1fr_1fr_1fr_auto] gap-3 p-3 bg-white rounded-lg border border-green-200">
+                        <div>
+                          <Label className="text-xs">Código de Factura</Label>
+                          <Input
+                            value={factura.codigo || ""}
+                            onChange={e => updateFacturaVenta(factura.id, 'codigo', e.target.value)}
+                            placeholder="Ej: FV-2025-001"
+                            className="h-9"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">RUT</Label>
+                          <Input
+                            value={factura.rut || ""}
+                            onChange={e => updateFacturaVenta(factura.id, 'rut', e.target.value)}
+                            placeholder="Ej: 12.345.678-9"
+                            className="h-9"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Monto Total</Label>
+                          <MoneyInput
+                            valueNumber={factura.monto || 0}
+                            onValueNumberChange={(num) => updateFacturaVenta(factura.id, 'monto', num)}
+                            placeholder="0"
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteFacturaVenta(factura.id)}
+                            className="h-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -1211,7 +1211,9 @@ const exportToExcel = () => {
 
       return cleaned;
     });
-    setData({ ...data, cotizaciones: nuevasCotizaciones });
+    // Filtrar las eliminadas del estado local para que desaparezcan de la UI inmediatamente
+    const cotizacionesVisibles = nuevasCotizaciones.filter(x => !x.deleted);
+    setData({ ...data, cotizaciones: cotizacionesVisibles });
   }}
 />
         </TabsContent>
