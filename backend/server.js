@@ -77,8 +77,8 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
     
     initUser('meg', { cotizaciones: [] });
     initUser('myorganic', { cotizaciones: [] });
-    initUser('meg_creacion', { clientes: [], cotizaciones: [], ordenesCompra: [] });
-    initUser('myorganic_creacion', { clientes: [], cotizaciones: [], ordenesCompra: [] });
+    initUser('meg_creacion', { clientes: [], cotizaciones: [], ordenesCompra: [], ordenesTrabajo: [] });
+    initUser('myorganic_creacion', { clientes: [], cotizaciones: [], ordenesCompra: [], ordenesTrabajo: [] });
   });
 });
 
@@ -181,7 +181,7 @@ app.get('/api/creacion', (req, res) => {
       return res.status(500).json({ error: 'Error al leer datos de creación' });
     }
     try {
-      const data = row ? JSON.parse(row.content) : { clientes: [], cotizaciones: [], ordenesCompra: [] };
+      const data = row ? JSON.parse(row.content) : { clientes: [], cotizaciones: [], ordenesCompra: [], ordenesTrabajo: [] };
       res.json(data);
     } catch (e) {
       console.error('Error al parsear creación:', e);

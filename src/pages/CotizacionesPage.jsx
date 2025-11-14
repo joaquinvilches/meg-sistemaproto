@@ -2687,18 +2687,84 @@ const addFactura = () => setFacturas([
 
         {/* NUEVO: Factura de Venta Asociada */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-          <h5 className="text-sm font-semibold text-blue-900 mb-3">Factura de Venta Asociada</h5>
-          <div className="grid md:grid-cols-3 gap-4">
-            <Field label="Código de Factura">
-              <Input value={ot.facturaVenta?.codigo || ""} onChange={e=>setOT({ ...(ot||{}), facturaVenta: { ...(ot.facturaVenta||{}), codigo: e.target.value } })} placeholder="Ej: FV-1234" />
-            </Field>
-            <Field label="RUT Cliente">
-              <Input value={ot.facturaVenta?.rut || ""} onChange={e=>setOT({ ...(ot||{}), facturaVenta: { ...(ot.facturaVenta||{}), rut: e.target.value } })} placeholder="76.123.456-7" />
-            </Field>
-            <Field label="Monto Total">
-              <MoneyInput valueNumber={Number(ot.facturaVenta?.monto || 0)} onValueNumberChange={(val)=>setOT({ ...(ot||{}), facturaVenta: { ...(ot.facturaVenta||{}), monto: val } })} placeholder="0" />
-            </Field>
+          <div className="flex items-center justify-between mb-3">
+            <h5 className="text-sm font-semibold text-blue-900">Facturas de Venta Asociadas</h5>
+            <Button
+              type="button"
+              onClick={() => {
+                const newFactura = { id: uid(), codigo: "", rut: "", monto: 0 };
+                setOT({ ...(ot||{}), facturasVenta: [...(ot.facturasVenta || []), newFactura] });
+              }}
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              + Agregar Factura
+            </Button>
           </div>
+
+          {(!ot.facturasVenta || ot.facturasVenta.length === 0) ? (
+            <p className="text-sm text-blue-700 italic">No hay facturas de venta. Haz clic en "Agregar Factura".</p>
+          ) : (
+            <div className="space-y-3">
+              {(ot.facturasVenta || []).map((factura) => (
+                <div key={factura.id} className="grid md:grid-cols-[1fr_1fr_1fr_auto] gap-3 p-3 bg-white rounded-lg border border-blue-200">
+                  <Field label="Código de Factura">
+                    <Input
+                      value={factura.codigo || ""}
+                      onChange={e => setOT({
+                        ...(ot||{}),
+                        facturasVenta: (ot.facturasVenta || []).map(f =>
+                          f.id === factura.id ? { ...f, codigo: e.target.value } : f
+                        )
+                      })}
+                      placeholder="Ej: FV-1234"
+                      className="h-9"
+                    />
+                  </Field>
+                  <Field label="RUT Cliente">
+                    <Input
+                      value={factura.rut || ""}
+                      onChange={e => setOT({
+                        ...(ot||{}),
+                        facturasVenta: (ot.facturasVenta || []).map(f =>
+                          f.id === factura.id ? { ...f, rut: e.target.value } : f
+                        )
+                      })}
+                      placeholder="76.123.456-7"
+                      className="h-9"
+                    />
+                  </Field>
+                  <Field label="Monto Total">
+                    <MoneyInput
+                      valueNumber={Number(factura.monto || 0)}
+                      onValueNumberChange={val => setOT({
+                        ...(ot||{}),
+                        facturasVenta: (ot.facturasVenta || []).map(f =>
+                          f.id === factura.id ? { ...f, monto: val } : f
+                        )
+                      })}
+                      placeholder="0"
+                      className="h-9"
+                    />
+                  </Field>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setOT({
+                        ...(ot||{}),
+                        facturasVenta: (ot.facturasVenta || []).filter(f => f.id !== factura.id)
+                      })}
+                      className="h-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
 {/* Tabla de Servicios OT (EDICIÓN) */}
@@ -2983,10 +3049,21 @@ function normalizeLocal(c){
 
   dc.comentarios = dc.comentarios || "";
   dc.oc = dc.oc || { clienteNombre:"", clienteRUT:"", codigo:"", monto:0, descripcion:"", pdfs:[], comentarios:"" };
-  dc.ot = dc.ot || { numero:"", fecha: todayISO(), items:[], pdfs:[], comentarios:"", facturaVenta: { codigo:"", rut:"", monto:0 } };
-  // NUEVO: Asegurar facturaVenta en ot
-  dc.ot.facturaVenta = dc.ot.facturaVenta || { codigo:"", rut:"", monto:0 };
-  dc.ot.facturaVenta.monto = Number(dc.ot.facturaVenta.monto || 0);
+  dc.ot = dc.ot || { numero:"", fecha: todayISO(), items:[], pdfs:[], comentarios:"", facturasVenta: [] };
+
+  // Migración: facturaVenta (objeto antiguo) → facturasVenta (array nuevo)
+  if (!dc.ot.facturasVenta || !Array.isArray(dc.ot.facturasVenta)) {
+    // Si tiene facturaVenta (objeto antiguo), convertir a array
+    if (dc.ot.facturaVenta && (dc.ot.facturaVenta.codigo || dc.ot.facturaVenta.rut || dc.ot.facturaVenta.monto)) {
+      dc.ot.facturasVenta = [{ ...dc.ot.facturaVenta, id: uid() }];
+      delete dc.ot.facturaVenta; // Eliminar campo antiguo
+    } else {
+      dc.ot.facturasVenta = [];
+    }
+  } else {
+    // Asegurar que cada factura tenga un ID
+    dc.ot.facturasVenta = dc.ot.facturasVenta.map(f => ({ ...f, id: f.id || uid(), monto: Number(f.monto || 0) }));
+  }
 
   dc.ot.items = (dc.ot.items||[]).map(it => ({
     id: it.id || uid(),
@@ -3072,9 +3149,26 @@ if (payload.oc) {
 }
 if (payload.ot) {
   payload.ot.comentarios = payload.ot.comentarios || "";
-  // NUEVO: Asegurar estructura de factura de venta asociada
-  payload.ot.facturaVenta = payload.ot.facturaVenta || { codigo:"", rut:"", monto:0 };
-  payload.ot.facturaVenta.monto = Number(payload.ot.facturaVenta.monto || 0);
+
+  // Migración y sanitización de facturas de venta
+  if (!payload.ot.facturasVenta || !Array.isArray(payload.ot.facturasVenta)) {
+    // Si tiene facturaVenta (objeto antiguo), migrar a array
+    if (payload.ot.facturaVenta && (payload.ot.facturaVenta.codigo || payload.ot.facturaVenta.rut || payload.ot.facturaVenta.monto)) {
+      payload.ot.facturasVenta = [{ ...payload.ot.facturaVenta, id: uid(), monto: Number(payload.ot.facturaVenta.monto || 0) }];
+    } else {
+      payload.ot.facturasVenta = [];
+    }
+    // Eliminar campo antiguo
+    delete payload.ot.facturaVenta;
+  } else {
+    // Sanitizar array de facturas
+    payload.ot.facturasVenta = payload.ot.facturasVenta.map(f => ({
+      ...f,
+      id: f.id || uid(),
+      monto: Number(f.monto || 0)
+    }));
+  }
+
   // NUEVO: Asegurar condicionesComerciales en cada item
   payload.ot.items = (payload.ot.items || []).map(it => ({
     ...it,
