@@ -31,6 +31,9 @@ const fmtMoney = (n) => CLP.format(Math.round(n || 0));
 const uid = () => Math.random().toString(36).slice(2, 9);
 const todayISO = () => new Date().toISOString().slice(0,10);
 const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
+// Helper para manejar cliente como objeto o string
+const getClienteNombre = (cotizacion) => typeof cotizacion.cliente === 'object' && cotizacion.cliente !== null ? (cotizacion.cliente.nombre || cotizacion.cliente.empresa || "—") : (cotizacion.cliente || "—");
+const getClienteRut = (cotizacion) => typeof cotizacion.cliente === 'object' && cotizacion.cliente !== null ? (cotizacion.cliente.rut || "—") : (cotizacion.rut || "—");
 const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
   const MAX_MB = 20;
   if (file.size > MAX_MB * 1024 * 1024) {
@@ -637,8 +640,8 @@ const exportToExcel = () => {
     const base = {
       "1. Codigo Cotización": cot.numero || "",
       "2. Fecha Cotización": cot.fecha || "",
-      "3. Cliente": cot.cliente || "",
-      "4. RUT Cliente": cot.rut || "",
+      "3. Cliente": getClienteNombre(cot) === "—" ? "" : getClienteNombre(cot),
+      "4. RUT Cliente": getClienteRut(cot) === "—" ? "" : getClienteRut(cot),
       "5. Solicitud/Proyecto": cot.solicitud || "",
       "6. Comentarios Cotización": cot.comentarios || "",
       "7. Monto Cotización (CLP)": cot.monto ? fmtMoney(cot.monto) : "",
@@ -2118,8 +2121,8 @@ function DetalleCotizacionVista({ cot, usarNetoSinIVA }){
         <Field label="Fecha"><div>{cot.fecha}</div></Field>
         <Field label="Monto Cot. (registro)"><div>{fmtMoney(Number(cot.monto||0))}</div></Field>
 
-        <Field label="Cliente / Empresa"><div>{cot.cliente || "—"}</div></Field>
-        <Field label="RUT"><div>{cot.rut || "—"}</div></Field>
+        <Field label="Cliente / Empresa"><div>{getClienteNombre(cot)}</div></Field>
+        <Field label="RUT"><div>{getClienteRut(cot)}</div></Field>
         <Field label="Solicitud / Proyecto" className="md:col-span-1"><div>{cot.solicitud || "—"}</div></Field>
       </div>
 
@@ -2425,8 +2428,8 @@ return (
                   <TableRow key={c.id} className="hover:bg-neutral-50">
                     <TableCell>{c.numero}</TableCell>
                     <TableCell>{c.fecha}</TableCell>
-                    <TableCell className="max-w-[220px] truncate">{typeof c.cliente === 'object' && c.cliente !== null ? (c.cliente.nombre || c.cliente.empresa || "—") : (c.cliente || "—")}</TableCell>
-                    <TableCell className="max-w-[140px] truncate">{typeof c.cliente === 'object' && c.cliente !== null ? (c.cliente.rut || "—") : (c.rut || "—")}</TableCell>
+                    <TableCell className="max-w-[220px] truncate">{getClienteNombre(c)}</TableCell>
+                    <TableCell className="max-w-[140px] truncate">{getClienteRut(c)}</TableCell>
                     <TableCell className="max-w-[220px] truncate">{c.solicitud || "—"}</TableCell>
 
                     <TableCell className="max-w-[200px] truncate">{c?.oc?.clienteNombre || "—"}</TableCell>
