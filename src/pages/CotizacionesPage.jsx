@@ -2506,7 +2506,7 @@ return (
       <Dialog open={!!sel} onOpenChange={(o)=>{ if(!o) setSel(null); }}>
         <DialogContent className="w-[95vw] sm:max-w-[1320px] h-[90vh] overflow-y-auto sm:rounded-2xl border-0 shadow-2xl bg-white">
           <DialogHeader>
-            <DialogTitle>Editar — {sel?.numero} · {sel?.cliente}</DialogTitle>
+            <DialogTitle>Editar — {sel?.numero} · {sel ? getClienteNombre(sel) : ""}</DialogTitle>
           </DialogHeader>
 
           {sel && (
@@ -3019,6 +3019,17 @@ dc.financiamiento = dc.financiamiento || {
   monto: 0,
   pdfs: []
 };
+
+  // Normalizar cliente: si es objeto, convertir a string
+  if (typeof dc.cliente === 'object' && dc.cliente !== null) {
+    const clienteObj = dc.cliente; // Guardar referencia
+    // Primero extraer el RUT si está en el objeto y no hay RUT ya
+    if (!dc.rut && clienteObj.rut) {
+      dc.rut = clienteObj.rut;
+    }
+    // Luego convertir cliente a string
+    dc.cliente = clienteObj.nombre || clienteObj.empresa || "";
+  }
 
   return dc;
 }
