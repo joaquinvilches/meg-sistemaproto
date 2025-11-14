@@ -328,16 +328,18 @@ class SyncManager {
 
   /**
    * Obtener datos locales desde el backend Electron (SQLite)
+   * NOTA: Este método obtiene datos del APARTADO PRINCIPAL (cotizaciones)
+   * El backend Electron sincroniza automáticamente AMBOS apartados (principal + creación)
    */
   async getLocalDataFromBackend() {
     try {
-      this.log('📂 Obteniendo datos locales del backend...');
+      this.log('📂 Obteniendo datos locales del backend (apartado principal)...');
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), SYNC_CONFIG.REQUEST_TIMEOUT);
 
       const response = await fetch(
-        getSyncUrl(`/api/creacion?key=${encodeURIComponent(this.userKey)}`),
+        getSyncUrl(`/api/data?key=${encodeURIComponent(this.userKey)}`),
         {
           method: 'GET',
           headers: {
@@ -354,7 +356,7 @@ class SyncManager {
       }
 
       const data = await response.json();
-      this.log('✅ Datos locales obtenidos:', data);
+      this.log('✅ Datos locales obtenidos (apartado principal):', data);
 
       return data;
 
@@ -409,21 +411,20 @@ class SyncManager {
 
   /**
    * Verificar si los datos locales están vacíos (instalación nueva)
+   * NOTA: Verifica solo el apartado principal (cotizaciones)
+   * El backend Electron sincroniza automáticamente el apartado de creación
    */
   isEmptyData(data) {
     if (!data || typeof data !== 'object') return true;
 
-    // Verificar si todos los arrays están vacíos
-    const arrays = ['clientes', 'cotizaciones', 'ordenesCompra', 'ordenesTrabajo'];
-
-    for (const key of arrays) {
-      if (Array.isArray(data[key]) && data[key].length > 0) {
-        // Tiene al menos un array con datos
-        return false;
-      }
+    // Verificar si el array de cotizaciones está vacío (apartado principal)
+    // /api/data devuelve: { cotizaciones: [] }
+    if (Array.isArray(data.cotizaciones) && data.cotizaciones.length > 0) {
+      // Tiene cotizaciones, NO es instalación nueva
+      return false;
     }
 
-    // Todos los arrays están vacíos o no existen
+    // No hay cotizaciones, ES instalación nueva
     return true;
   }
 
