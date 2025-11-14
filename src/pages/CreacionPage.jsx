@@ -630,6 +630,7 @@ export default function CreacionPage() {
             direccion: "Andrés de Alcázar 356 OF 603, Edificio Alcázar",
             ciudad: "Rancagua",
             telefono: "+56 9 30782884",
+            web: "https://myorganic.cl/",
             logoPath: "./logo-myorganic.png",
           }
         : {
@@ -637,6 +638,7 @@ export default function CreacionPage() {
             direccion: "Av. Apoquindo 6410",
             ciudad: "Las Condes, Santiago",
             telefono: "+56 9 30782884",
+            web: "https://megindustrial.cl/",
             logoPath: "./logo-meg.png",
           };
 
@@ -736,6 +738,8 @@ export default function CreacionPage() {
       page.drawText(`Ciudad: ${empresaData.ciudad}`, { x: empresaX, y, size: small, font });
       y -= line;
       page.drawText(`Teléfono: ${empresaData.telefono}`, { x: empresaX, y, size: small, font });
+      y -= line;
+      page.drawText(`Web: ${empresaData.web}`, { x: empresaX, y, size: small, font, color: rgb(0, 0.4, 0.8) });
       
       const fechaY = infoY;
       page.drawText("FECHA DE EMISIÓN", { 
