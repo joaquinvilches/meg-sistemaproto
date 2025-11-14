@@ -72,6 +72,53 @@ app.use((req, res, next) => {
 // ═══════════════════════════════════════
 
 /**
+ * Migrar facturaVenta (objeto antiguo) a facturasVenta (array nuevo)
+ */
+function migrateFacturasVenta(item) {
+  // Si ya tiene facturasVenta (array), asegurarse de que tenga IDs
+  if (Array.isArray(item.facturasVenta)) {
+    item.facturasVenta = item.facturasVenta.map(f => ({
+      ...f,
+      id: f.id || generateUID(),
+      monto: Number(f.monto || 0)
+    }));
+    delete item.facturaVenta; // Eliminar campo antiguo si existe
+    return item;
+  }
+
+  // Si tiene facturaVenta (objeto antiguo), convertir a array
+  if (item.facturaVenta && typeof item.facturaVenta === 'object') {
+    const { codigo, rut, monto } = item.facturaVenta;
+
+    // Solo crear factura si tiene algún dato
+    if (codigo || rut || monto) {
+      item.facturasVenta = [{
+        id: generateUID(),
+        codigo: codigo || '',
+        rut: rut || '',
+        monto: Number(monto || 0)
+      }];
+    } else {
+      item.facturasVenta = [];
+    }
+
+    delete item.facturaVenta; // Eliminar campo antiguo
+  } else {
+    // No tiene ninguno, crear array vacío
+    item.facturasVenta = [];
+  }
+
+  return item;
+}
+
+/**
+ * Generar UID simple (compatibilidad con frontend)
+ */
+function generateUID() {
+  return Math.random().toString(36).substring(2, 9);
+}
+
+/**
  * Merge de datos con estrategia Last-Write-Wins
  *
  * @param {Object} existingData - Datos actuales en VPS
@@ -90,6 +137,22 @@ function mergeData(existingData, newData) {
       const newArray = newData[key] || [];
 
       console.log(`  📊 ${key}: Existentes=${existingArray.length}, Nuevos=${newArray.length}`);
+
+      // 🆕 MIGRACIÓN: Si son cotizaciones con órdenes de trabajo, migrar facturasVenta
+      if (key === 'cotizaciones') {
+        newArray.forEach(cot => {
+          if (cot.ot && typeof cot.ot === 'object') {
+            cot.ot = migrateFacturasVenta(cot.ot);
+          }
+        });
+      }
+
+      // 🆕 MIGRACIÓN: Si son órdenes de trabajo directas, migrar facturasVenta
+      if (key === 'ordenesTrabajo') {
+        newArray.forEach(ot => {
+          migrateFacturasVenta(ot);
+        });
+      }
 
       // Merge por ID único
       merged[key] = mergeArrayByUniqueId(existingArray, newArray, key);

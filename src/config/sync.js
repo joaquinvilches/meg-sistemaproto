@@ -14,7 +14,7 @@ export const SYNC_CONFIG = {
   SYNC_API_URL: import.meta.env.VITE_SYNC_API_URL || 'http://localhost:3001',
 
   // Intervalo de sincronización automática (en milisegundos)
-  SYNC_INTERVAL: 30000, // 30 segundos
+  SYNC_INTERVAL: 15000, // 15 segundos (reducido para sync más frecuente)
 
   // Timeout para requests (en milisegundos)
   REQUEST_TIMEOUT: 120000, // 120 segundos (2 minutos - para sincronizar PDFs completos)

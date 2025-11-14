@@ -40,6 +40,12 @@ class SyncManager {
     // Verificar conexión inicial
     this.checkConnection();
 
+    // 🆕 SINCRONIZACIÓN INMEDIATA al iniciar (no esperar intervalo)
+    if (this.isOnline && !this.isSyncing) {
+      this.log('⚡ Ejecutando sincronización inicial inmediata...');
+      setTimeout(() => this.syncNow(), 1000); // 1 segundo de delay para que la UI cargue
+    }
+
     // Sincronización automática cada X segundos
     this.syncInterval = setInterval(() => {
       if (this.isOnline && !this.isSyncing) {
@@ -139,12 +145,41 @@ class SyncManager {
     try {
       this.log('🔄 Iniciando sincronización bidireccional...');
 
-      // ESTRATEGIA DE SINCRONIZACIÓN BIDIRECCIONAL:
+      // 🆕 PASO 0: Obtener datos locales para detectar instalación nueva
+      const localData = await this.getLocalDataFromBackend();
+      const isNewInstallation = this.isEmptyData(localData);
+
+      if (isNewInstallation) {
+        this.log('🆕 INSTALACIÓN NUEVA DETECTADA - Saltando PUSH inicial');
+        this.log('📥 Descargando todos los datos del VPS primero...');
+
+        // SOLO PULL en instalación nueva
+        const pullStart = Date.now();
+        const syncResult = await this.pullFromServer();
+        const pullTime = ((Date.now() - pullStart) / 1000).toFixed(2);
+        this.log(`✓ PULL completado en ${pullTime}s`);
+
+        // Actualizar timestamp y notificar
+        this.lastSyncTime = new Date();
+        this.retryCount = 0;
+
+        const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        this.log(`✅ Sincronización inicial completada en ${totalTime}s`);
+
+        this.notifyListeners({
+          type: 'sync-success',
+          timestamp: this.lastSyncTime,
+          isFirstSync: true
+        });
+
+        return { success: true, data: syncResult.data, isFirstSync: true };
+      }
+
+      // ESTRATEGIA DE SINCRONIZACIÓN BIDIRECCIONAL (instalación NO nueva):
       // 1. PUSH: Subir datos locales al VPS primero (por si hay cambios nuevos)
       // 2. PULL: Descargar datos del VPS (que ahora incluye nuestros cambios + cambios de otros PCs)
 
-      // 1. PUSH: Obtener datos locales y subirlos al VPS
-      const localData = await this.getLocalDataFromBackend();
+      // 1. PUSH: Subir datos locales al VPS
       if (localData && Object.keys(localData).length > 0) {
         // Calcular tamaño aproximado de los datos
         const dataSize = JSON.stringify(localData).length;
@@ -370,6 +405,26 @@ class SyncManager {
       pendingChanges: this.pendingChanges.length,
       userKey: this.userKey
     };
+  }
+
+  /**
+   * Verificar si los datos locales están vacíos (instalación nueva)
+   */
+  isEmptyData(data) {
+    if (!data || typeof data !== 'object') return true;
+
+    // Verificar si todos los arrays están vacíos
+    const arrays = ['clientes', 'cotizaciones', 'ordenesCompra', 'ordenesTrabajo'];
+
+    for (const key of arrays) {
+      if (Array.isArray(data[key]) && data[key].length > 0) {
+        // Tiene al menos un array con datos
+        return false;
+      }
+    }
+
+    // Todos los arrays están vacíos o no existen
+    return true;
   }
 
   /**

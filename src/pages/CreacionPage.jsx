@@ -84,6 +84,7 @@ function useCreacionStore(userKey, isEditing) {
     ordenesTrabajo: [] // ✅ NUEVO
   });
   const [loading, setLoading] = useState(true);
+  const [isFirstSyncLoading, setIsFirstSyncLoading] = useState(false);
 
   // Función de carga de datos (extraída para poder reutilizarla)
   const loadData = useCallback(async () => {
@@ -126,7 +127,22 @@ function useCreacionStore(userKey, isEditing) {
       const syncManager = getSyncManager(userKey);
 
       const unsubscribe = syncManager.subscribe((event) => {
+        if (event.type === 'sync-start') {
+          // 🆕 Si es la primera sincronización, mostrar loading especial
+          const status = syncManager.getStatus();
+          if (!status.lastSyncTime) {
+            console.log('[CreacionPage] Primera sincronización iniciando...');
+            setIsFirstSyncLoading(true);
+          }
+        }
+
         if (event.type === 'sync-success') {
+          // 🆕 Si era primera sincronización, ocultar loading
+          if (event.isFirstSync) {
+            console.log('[CreacionPage] Primera sincronización completada');
+            setIsFirstSyncLoading(false);
+          }
+
           // Verificar si hay edición activa usando el callback
           if (typeof isEditing === 'function' && isEditing()) {
             console.log('[CreacionPage] Sincronización exitosa pero hay edición activa, omitiendo recarga');
@@ -135,6 +151,11 @@ function useCreacionStore(userKey, isEditing) {
 
           console.log('[CreacionPage] Sincronización exitosa, recargando datos...');
           loadData();
+        }
+
+        if (event.type === 'sync-error') {
+          // Ocultar loading en caso de error
+          setIsFirstSyncLoading(false);
         }
       });
 
@@ -218,7 +239,7 @@ function useCreacionStore(userKey, isEditing) {
     }
   }, [userKey, API_BASE]);
 
-  return { data, setData: saveData, loading };
+  return { data, setData: saveData, loading, isFirstSyncLoading };
 }
 
 /* ===========================
@@ -269,7 +290,7 @@ export default function CreacionPage() {
   const [editRef, setEditRef] = useState(null);
 
   // Hook con callback para detectar edición activa
-  const { data, setData, loading } = useCreacionStore(userKey, () => {
+  const { data, setData, loading, isFirstSyncLoading } = useCreacionStore(userKey, () => {
     // Retorna true si hay alguna edición activa
     return clienteEnEdicion !== null || editRef !== null;
   });
@@ -1439,11 +1460,29 @@ export default function CreacionPage() {
     return <div className="min-h-screen bg-slate-50" />;
   }
 
+  // 🆕 Mostrar loading screen durante primera sincronización
+  if (isFirstSyncLoading) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4 p-8 bg-white rounded-lg shadow-lg">
+          <div className="relative w-16 h-16">
+            <div className="absolute inset-0 border-4 border-blue-200 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-blue-600 rounded-full animate-spin border-t-transparent"></div>
+          </div>
+          <div className="text-center">
+            <h2 className="text-xl font-semibold text-slate-800 mb-1">Sincronizando datos...</h2>
+            <p className="text-sm text-slate-500">Descargando información desde el servidor</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen w-full bg-slate-50 text-slate-900">
-      <header 
+      <header
         className="sticky top-0 z-20 text-white shadow-md"
-        style={{ 
+        style={{
           background: `linear-gradient(135deg, ${brandConfig.primaryColor} 0%, ${brandConfig.accentColor} 100%)`
         }}
       >
