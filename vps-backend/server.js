@@ -450,10 +450,22 @@ app.get('/api/sync/pull', async (req, res) => {
 
     const data = result.rows[0].content;
 
-    console.log(`✅ PULL exitoso - userKey: ${userKey}`);
-    console.log(`   📊 Datos: ${JSON.stringify(Object.keys(data).map(k => `${k}=${Array.isArray(data[k]) ? data[k].length : '?'}`))}`);
+    // 🆕 FILTRAR items eliminados (deleted: true) antes de enviar al cliente
+    const filteredData = {};
+    for (const key of Object.keys(data)) {
+      if (Array.isArray(data[key])) {
+        // Filtrar items con deleted: true
+        filteredData[key] = data[key].filter(item => !item.deleted);
+      } else {
+        filteredData[key] = data[key];
+      }
+    }
 
-    res.json(data);
+    console.log(`✅ PULL exitoso - userKey: ${userKey}`);
+    console.log(`   📊 Datos originales: ${JSON.stringify(Object.keys(data).map(k => `${k}=${Array.isArray(data[k]) ? data[k].length : '?'}`))}`);
+    console.log(`   📊 Datos filtrados: ${JSON.stringify(Object.keys(filteredData).map(k => `${k}=${Array.isArray(filteredData[k]) ? filteredData[k].length : '?'}`))}`);
+
+    res.json(filteredData);
 
   } catch (error) {
     console.error('❌ Error en PULL:', error);
