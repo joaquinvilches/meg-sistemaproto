@@ -2541,14 +2541,74 @@ return (
  *******************/
 function DetalleCotizacionEditable({ initial, usarNetoSinIVA, onSave, onDelete }){
   const toast = useToast();
+  const { user } = useAuth();
   const [cot, setCot] = useState(()=> normalizeLocal(initial));
   useEffect(()=>{ setCot(normalizeLocal(initial)); }, [initial?.id]);
+
+  // ======= Cargar datos del apartado de creación =======
+  const [datosCreacion, setDatosCreacion] = useState({ cotizaciones: [], ordenesCompra: [] });
+  const [cargandoCreacion, setCargandoCreacion] = useState(true);
+
+  useEffect(() => {
+    const cargarDatosCreacion = async () => {
+      try {
+        const res = await fetch(`http://localhost:3001/api/creacion?key=${encodeURIComponent(user)}`);
+        if (res.ok) {
+          const json = await res.json();
+          setDatosCreacion({
+            cotizaciones: (json.cotizaciones || []).filter(x => !x.deleted),
+            ordenesCompra: (json.ordenesCompra || []).filter(x => !x.deleted)
+          });
+        }
+      } catch (e) {
+        console.error('Error al cargar datos de creación:', e);
+      } finally {
+        setCargandoCreacion(false);
+      }
+    };
+    cargarDatosCreacion();
+  }, [user]);
 
   // ======= helpers de estado =======
   const setField = (k, v) => setCot(prev => ({ ...prev, [k]: v }));
   const setOC    = (patch) => setCot(prev => ({ ...prev, oc: { ...(prev.oc||{}), ...patch } }));
   const setOT    = (patch) => setCot(prev => ({ ...prev, ot: { ...(prev.ot||{items:[]}), ...patch } }));
   const setFacturas = (arr) => setCot(prev => ({ ...prev, facturas: arr }));
+
+  // ======= Autocompletar desde apartado de creación =======
+  const autocompletarDesdeCotizacion = (cotizacionId) => {
+    const cotSeleccionada = datosCreacion.cotizaciones.find(c => c.id === cotizacionId);
+    if (!cotSeleccionada) return;
+
+    // Autocompletar campos que coincidan
+    const updates = {};
+    if (cotSeleccionada.cliente) updates.cliente = cotSeleccionada.cliente?.nombre || cotSeleccionada.cliente?.empresa || cotSeleccionada.cliente;
+    if (cotSeleccionada.cliente?.rut) updates.rut = cotSeleccionada.cliente.rut;
+    if (cotSeleccionada.solicitud) updates.solicitud = cotSeleccionada.solicitud;
+    if (cotSeleccionada.comentarios) updates.comentarios = cotSeleccionada.comentarios;
+    if (cotSeleccionada.fecha) updates.fecha = cotSeleccionada.fecha;
+
+    setCot(prev => ({ ...prev, ...updates }));
+    toast.success('Datos autocompletados desde cotización de creación');
+  };
+
+  const autocompletarDesdeOC = (ocId) => {
+    const ocSeleccionada = datosCreacion.ordenesCompra.find(oc => oc.id === ocId);
+    if (!ocSeleccionada) return;
+
+    // Autocompletar campos de OC
+    const ocPatch = {};
+    if (ocSeleccionada.clienteNombre) ocPatch.clienteNombre = ocSeleccionada.clienteNombre;
+    if (ocSeleccionada.clienteRUT) ocPatch.clienteRUT = ocSeleccionada.clienteRUT;
+    if (ocSeleccionada.codigo) ocPatch.codigo = ocSeleccionada.codigo;
+    if (ocSeleccionada.monto) ocPatch.monto = ocSeleccionada.monto;
+    if (ocSeleccionada.descripcion) ocPatch.descripcion = ocSeleccionada.descripcion;
+    if (ocSeleccionada.comentarios) ocPatch.comentarios = ocSeleccionada.comentarios;
+    if (ocSeleccionada.pdfs) ocPatch.pdfs = [...ocSeleccionada.pdfs];
+
+    setOC(ocPatch);
+    toast.success('Datos de OC autocompletados desde creación');
+  };
 
   // Helper: actualizar financiamiento
 const setFin = (patch) =>
@@ -2617,6 +2677,56 @@ const addFactura = () => setFacturas([
           <Button variant="destructive" onClick={tryDelete} className="rounded-lg">Eliminar</Button>
         </div>
       </div>
+
+      {/* Autocompletar desde Creación */}
+      {!cargandoCreacion && (datosCreacion.cotizaciones.length > 0 || datosCreacion.ordenesCompra.length > 0) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h5 className="text-sm font-semibold text-blue-900 mb-3">Autocompletar desde Apartado de Creación</h5>
+          <div className="grid md:grid-cols-2 gap-4">
+            {datosCreacion.cotizaciones.length > 0 && (
+              <Field label="Buscar Cotización (opcional)">
+                <select
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    if (e.target.value) autocompletarDesdeCotizacion(e.target.value);
+                    e.target.value = '';
+                  }}
+                  defaultValue=""
+                >
+                  <option value="">Seleccionar cotización...</option>
+                  {datosCreacion.cotizaciones.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.numero || 'Sin número'} - {typeof c.cliente === 'object' ? (c.cliente?.nombre || c.cliente?.empresa) : c.cliente || 'Sin cliente'}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {datosCreacion.ordenesCompra.length > 0 && (
+              <Field label="Buscar OC (opcional)">
+                <select
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    if (e.target.value) autocompletarDesdeOC(e.target.value);
+                    e.target.value = '';
+                  }}
+                  defaultValue=""
+                >
+                  <option value="">Seleccionar OC...</option>
+                  {datosCreacion.ordenesCompra.map(oc => (
+                    <option key={oc.id} value={oc.id}>
+                      {oc.codigo || oc.numero || 'Sin código'} - {oc.clienteNombre || 'Sin cliente'}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+          </div>
+          <p className="text-xs text-blue-700 mt-2 italic">
+            Selecciona una cotización u OC para autocompletar los campos. Puedes editar manualmente después.
+          </p>
+        </div>
+      )}
 
       {/* Datos base */}
       <div className="grid md:grid-cols-3 gap-4">

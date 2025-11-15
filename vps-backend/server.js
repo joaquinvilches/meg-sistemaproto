@@ -2,7 +2,7 @@
  * MEG Sistema - VPS Backend Server
  * Servidor de sincronización para aplicación Electron multi-usuario
  *
- * v1.2.6 - FIX CRÍTICO: Merge en lugar de Replace
+ * v1.3.0 - FIX CRÍTICO: Estructura de Apartados + Validación
  */
 
 require('dotenv').config();
@@ -66,6 +66,74 @@ app.use((req, res, next) => {
   console.log(`[${timestamp}] ${req.method} ${req.path}`);
   next();
 });
+
+// ═══════════════════════════════════════
+// Funciones de Validación
+// ═══════════════════════════════════════
+
+/**
+ * Validar estructura de datos según apartado
+ *
+ * @param {String} userKey - Clave del usuario (meg, myorganic, meg_creacion, myorganic_creacion)
+ * @param {Object} data - Datos a validar
+ * @returns {Object} - { valid: boolean, filteredData?: Object, error?: String }
+ */
+function validateDataStructure(userKey, data) {
+  const isMainApartment = userKey === 'meg' || userKey === 'myorganic';
+  const isCreacionApartment = userKey === 'meg_creacion' || userKey === 'myorganic_creacion';
+
+  if (isMainApartment) {
+    // Apartado principal: SOLO debe tener cotizaciones
+    if (!data || typeof data !== 'object') {
+      return { valid: false, error: 'Datos inválidos' };
+    }
+
+    if (!Array.isArray(data.cotizaciones)) {
+      return { valid: false, error: 'Apartado principal debe tener array de cotizaciones' };
+    }
+
+    // Filtrar solo cotizaciones (ignorar claves extra)
+    const filteredData = {
+      cotizaciones: data.cotizaciones
+    };
+
+    // Advertir si tiene claves extra
+    const receivedKeys = Object.keys(data);
+    const extraKeys = receivedKeys.filter(k => k !== 'cotizaciones');
+    if (extraKeys.length > 0) {
+      console.warn(`⚠️ [${userKey}] Claves extra ignoradas: ${extraKeys.join(', ')}`);
+    }
+
+    return { valid: true, filteredData };
+  }
+
+  if (isCreacionApartment) {
+    // Apartado creación: debe tener los 4 arrays
+    const requiredKeys = ['clientes', 'cotizaciones', 'ordenesCompra', 'ordenesTrabajo'];
+
+    if (!data || typeof data !== 'object') {
+      return { valid: false, error: 'Datos inválidos' };
+    }
+
+    for (const key of requiredKeys) {
+      if (!Array.isArray(data[key])) {
+        return { valid: false, error: `Apartado creación debe tener array de ${key}` };
+      }
+    }
+
+    // Filtrar solo claves permitidas
+    const filteredData = {
+      clientes: data.clientes,
+      cotizaciones: data.cotizaciones,
+      ordenesCompra: data.ordenesCompra,
+      ordenesTrabajo: data.ordenesTrabajo
+    };
+
+    return { valid: true, filteredData };
+  }
+
+  return { valid: false, error: `userKey desconocido: ${userKey}` };
+}
 
 // ═══════════════════════════════════════
 // Funciones de Merge
@@ -364,29 +432,49 @@ async function initDatabase() {
 
     console.log('✅ Base de datos inicializada correctamente');
 
-    // Insertar datos iniciales si no existen
-    const userKeys = ['meg', 'myorganic'];
+    // ═══════════════════════════════════════
+    // FIX v1.3.0: Estructura de Apartados Correcta
+    // ═══════════════════════════════════════
 
-    for (const key of userKeys) {
+    const dataStructures = {
+      // Apartados principales: SOLO cotizaciones
+      'meg': {
+        cotizaciones: []
+      },
+      'myorganic': {
+        cotizaciones: []
+      },
+
+      // Apartados creación: clientes, cotizaciones, OC, OT
+      'meg_creacion': {
+        clientes: [],
+        cotizaciones: [],
+        ordenesCompra: [],
+        ordenesTrabajo: []
+      },
+      'myorganic_creacion': {
+        clientes: [],
+        cotizaciones: [],
+        ordenesCompra: [],
+        ordenesTrabajo: []
+      }
+    };
+
+    for (const [userKey, defaultContent] of Object.entries(dataStructures)) {
       const result = await pool.query(
         'SELECT id FROM sync_data WHERE id = $1',
-        [key]
+        [userKey]
       );
 
       if (result.rows.length === 0) {
-        const defaultContent = {
-          clientes: [],
-          cotizaciones: [],
-          ordenesCompra: [],
-          ordenesTrabajo: []
-        };
-
         await pool.query(
           'INSERT INTO sync_data (id, user_key, content) VALUES ($1, $2, $3)',
-          [key, key, JSON.stringify(defaultContent)]
+          [userKey, userKey, JSON.stringify(defaultContent)]
         );
 
-        console.log(`✅ Datos iniciales creados para: ${key}`);
+        console.log(`✅ Datos iniciales creados para: ${userKey} (estructura: ${Object.keys(defaultContent).join(', ')})`);
+      } else {
+        console.log(`ℹ️  Registro existente: ${userKey}`);
       }
     }
 
@@ -407,7 +495,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.2.8'
+    version: '1.3.0'
   });
 });
 
@@ -431,16 +519,18 @@ app.get('/api/sync/pull', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      // Si no existe, crear registro vacío
-      const defaultContent = {
-        clientes: [],
-        cotizaciones: [],
-        ordenesCompra: [],
-        ordenesTrabajo: []
-      };
+      // Si no existe, retornar estructura vacía según tipo de apartado
+      const validation = validateDataStructure(userKey, getDefaultStructure(userKey));
 
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      const defaultContent = validation.filteredData;
+
+      // Crear registro en BD
       await pool.query(
-        'INSERT INTO sync_data (id, user_key, content) VALUES ($1, $2, $3) RETURNING content, version, updated_at',
+        'INSERT INTO sync_data (id, user_key, content) VALUES ($1, $2, $3)',
         [userKey, userKey, JSON.stringify(defaultContent)]
       );
 
@@ -474,7 +564,7 @@ app.get('/api/sync/pull', async (req, res) => {
 });
 
 /**
- * PUSH: Subir datos al servidor CON MERGE
+ * PUSH: Subir datos al servidor CON MERGE Y VALIDACIÓN
  * POST /api/sync/push?userKey=myorganic
  * Body: { cotizaciones: [...], clientes: [...], ... }
  */
@@ -491,8 +581,18 @@ app.post('/api/sync/push', async (req, res) => {
       return res.status(400).json({ error: 'data es requerido' });
     }
 
+    // ✅ VALIDAR ESTRUCTURA SEGÚN APARTADO
+    const validation = validateDataStructure(userKey, newData);
+
+    if (!validation.valid) {
+      console.error(`❌ [${userKey}] Estructura inválida:`, validation.error);
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const validatedData = validation.filteredData;
+
     console.log(`📤 PUSH - userKey: ${userKey}`);
-    console.log(`📤 Datos nuevos recibidos:`, Object.keys(newData).map(k => `${k}=${Array.isArray(newData[k]) ? newData[k].length : '?'}`));
+    console.log(`📤 Datos validados:`, Object.keys(validatedData).map(k => `${k}=${Array.isArray(validatedData[k]) ? validatedData[k].length : '?'}`));
 
     // 1. Obtener datos existentes
     const existingResult = await pool.query(
@@ -505,13 +605,13 @@ app.post('/api/sync/push', async (req, res) => {
     if (existingResult.rows.length === 0) {
       // No existe: crear nuevo registro
       console.log('📝 Creando nuevo registro...');
-      mergedData = newData;
+      mergedData = validatedData;
     } else {
       // Existe: hacer MERGE
       const existingData = existingResult.rows[0].content;
       console.log(`📂 Datos existentes:`, Object.keys(existingData).map(k => `${k}=${Array.isArray(existingData[k]) ? existingData[k].length : '?'}`));
 
-      mergedData = mergeData(existingData, newData);
+      mergedData = mergeData(existingData, validatedData);
       console.log(`✅ Datos mergeados:`, Object.keys(mergedData).map(k => `${k}=${Array.isArray(mergedData[k]) ? mergedData[k].length : '?'}`));
     }
 
@@ -532,8 +632,8 @@ app.post('/api/sync/push', async (req, res) => {
       'INSERT INTO sync_log (user_key, action, details) VALUES ($1, $2, $3)',
       [userKey, 'PUSH', JSON.stringify({
         timestamp: new Date(),
-        newItems: Object.keys(newData).reduce((acc, k) => {
-          acc[k] = Array.isArray(newData[k]) ? newData[k].length : 0;
+        newItems: Object.keys(validatedData).reduce((acc, k) => {
+          acc[k] = Array.isArray(validatedData[k]) ? validatedData[k].length : 0;
           return acc;
         }, {}),
         mergedItems: Object.keys(mergedData).reduce((acc, k) => {
@@ -605,10 +705,10 @@ app.get('/api/stats', async (req, res) => {
         user_key,
         version,
         updated_at,
-        jsonb_array_length(content->'clientes') as num_clientes,
-        jsonb_array_length(content->'cotizaciones') as num_cotizaciones,
-        jsonb_array_length(content->'ordenesCompra') as num_ordenes_compra,
-        jsonb_array_length(content->'ordenesTrabajo') as num_ordenes_trabajo
+        jsonb_array_length(COALESCE(content->'clientes', '[]'::jsonb)) as num_clientes,
+        jsonb_array_length(COALESCE(content->'cotizaciones', '[]'::jsonb)) as num_cotizaciones,
+        jsonb_array_length(COALESCE(content->'ordenesCompra', '[]'::jsonb)) as num_ordenes_compra,
+        jsonb_array_length(COALESCE(content->'ordenesTrabajo', '[]'::jsonb)) as num_ordenes_trabajo
       FROM sync_data
       ORDER BY updated_at DESC
     `);
@@ -620,6 +720,28 @@ app.get('/api/stats', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 });
+
+// ═══════════════════════════════════════
+// Funciones Auxiliares
+// ═══════════════════════════════════════
+
+/**
+ * Obtener estructura por defecto según userKey
+ */
+function getDefaultStructure(userKey) {
+  const isMainApartment = userKey === 'meg' || userKey === 'myorganic';
+
+  if (isMainApartment) {
+    return { cotizaciones: [] };
+  }
+
+  return {
+    clientes: [],
+    cotizaciones: [],
+    ordenesCompra: [],
+    ordenesTrabajo: []
+  };
+}
 
 // ═══════════════════════════════════════
 // Manejo de Errores
@@ -656,11 +778,13 @@ async function startServer() {
     app.listen(PORT, '0.0.0.0', () => {
       console.log('═══════════════════════════════════════');
       console.log('  MEG Sistema - VPS Backend Server');
-      console.log('  v1.2.8 - SOFT DELETE + CLEANUP');
+      console.log('  v1.3.0 - FIX ESTRUCTURA APARTADOS');
       console.log('═══════════════════════════════════════');
       console.log(`✅ Servidor corriendo en puerto ${PORT}`);
       console.log(`✅ Ambiente: ${process.env.NODE_ENV || 'production'}`);
       console.log(`✅ PostgreSQL: ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}`);
+      console.log(`✅ Validación de estructura: ACTIVADA`);
+      console.log(`✅ Apartados configurados: meg, myorganic, meg_creacion, myorganic_creacion`);
       console.log(`✅ Limpieza automática: cada 24 horas (30 días retención)`);
       console.log('═══════════════════════════════════════');
     });
